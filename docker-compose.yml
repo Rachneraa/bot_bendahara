@@ -1,0 +1,80 @@
+version: '3.8'
+
+services:
+  # 1. Aplikasi Bot WhatsApp & Web Dashboard
+  app:
+    build: .
+    container_name: bot_bendahara_app
+    restart: unless-stopped
+    ports:
+      - "${PORT:-3000}:3000"
+    environment:
+      - NODE_ENV=production
+      - PORT=3000
+      - TZ=Asia/Jakarta
+      - SESSION_SECRET=${SESSION_SECRET:-ganti_dengan_kode_rahasia_acak_2026}
+      - DB_HOST=db
+      - DB_PORT=3306
+      - DB_USER=${DB_USER:-botuser}
+      - DB_PASS=${DB_PASS:-botpassword123}
+      - DB_NAME=${DB_NAME:-bot_bendahara}
+      - ADMIN_DEFAULT_USER=${ADMIN_DEFAULT_USER:-admin}
+      - ADMIN_DEFAULT_PASS=${ADMIN_DEFAULT_PASS:-admin123}
+      - ADMIN_DEFAULT_NAME=${ADMIN_DEFAULT_NAME:-Bendahara Kelas}
+      - BOT_PHONE_NUMBER=${BOT_PHONE_NUMBER:-}
+      - ADMIN_NUMBERS=${ADMIN_NUMBERS:-}
+    volumes:
+      # Mount folder auth_info agar sesi login WhatsApp tetap tersimpan saat container di-restart
+      - ./auth_info:/app/auth_info
+    depends_on:
+      db:
+        condition: service_healthy
+    networks:
+      - bot_network
+
+  # 2. Database MariaDB (Otomatis import schema.sql pada boot pertama)
+  db:
+    image: mariadb:10.11
+    container_name: bot_bendahara_db
+    restart: unless-stopped
+    environment:
+      - TZ=Asia/Jakarta
+      - MYSQL_ROOT_PASSWORD=${DB_ROOT_PASS:-rootsecret123}
+      - MYSQL_DATABASE=${DB_NAME:-bot_bendahara}
+      - MYSQL_USER=${DB_USER:-botuser}
+      - MYSQL_PASSWORD=${DB_PASS:-botpassword123}
+    volumes:
+      - db_data:/var/lib/mysql
+      # Auto-import skema tabel saat container database dibuat pertama kali
+      - ./database/schema.sql:/docker-entrypoint-initdb.d/01-schema.sql:ro
+    healthcheck:
+      test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+    networks:
+      - bot_network
+
+  # 3. phpMyAdmin (Opsional: akses database via browser di port 8080)
+  phpmyadmin:
+    image: phpmyadmin/phpmyadmin
+    container_name: bot_bendahara_pma
+    restart: unless-stopped
+    ports:
+      - "${PMA_PORT:-8080}:80"
+    environment:
+      - PMA_HOST=db
+      - PMA_PORT=3306
+    depends_on:
+      db:
+        condition: service_healthy
+    networks:
+      - bot_network
+
+networks:
+  bot_network:
+    driver: bridge
+
+volumes:
+  db_data:

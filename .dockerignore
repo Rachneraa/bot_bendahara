@@ -1,0 +1,8 @@
+node_modules
+npm-debug.log
+auth_info
+.git
+.gitignore
+.env
+*.log
+PLANNING.md

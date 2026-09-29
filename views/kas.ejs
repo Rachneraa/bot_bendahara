@@ -1,0 +1,144 @@
+<%- include('layout/header', { pageTitle: 'Buku Kas & Keuangan', pageDesc: 'Pencatatan kas masuk, pengeluaran kelas, dan riwayat mutasi transaksi' }) %>
+
+<!-- Ringkasan Saldo -->
+<div class="stats-grid">
+  <div class="stat-card">
+    <div class="stat-icon" style="color: var(--accent-emerald);">💎</div>
+    <div class="stat-info">
+      <p>Sisa Saldo Kas</p>
+      <h3 style="color: var(--accent-emerald);"><%= formatter.formatRupiah(saldoSummary.saldo) %></h3>
+    </div>
+  </div>
+
+  <div class="stat-card">
+    <div class="stat-icon" style="color: var(--accent-cyan);">📥</div>
+    <div class="stat-info">
+      <p>Total Pemasukan</p>
+      <h3><%= formatter.formatRupiah(saldoSummary.totalMasuk) %></h3>
+    </div>
+  </div>
+
+  <div class="stat-card">
+    <div class="stat-icon" style="color: var(--accent-rose);">📤</div>
+    <div class="stat-info">
+      <p>Total Pengeluaran</p>
+      <h3><%= formatter.formatRupiah(saldoSummary.totalKeluar) %></h3>
+    </div>
+  </div>
+</div>
+
+<div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 16px;">
+  <div>
+    <h2 style="font-size: 1.2rem; font-weight: 700;">Riwayat Mutasi Kas Terakhir</h2>
+    <p style="font-size: 0.85rem; color: var(--text-muted);">
+      Menampilkan transaksi yang dicatat via Bot WhatsApp maupun Web Dashboard.
+    </p>
+  </div>
+  <button onclick="openModal('modalAddKas')" class="btn btn-primary">
+    ➕ Catat Transaksi Kas
+  </button>
+</div>
+
+<!-- Tabel Transaksi -->
+<div class="glass-card">
+  <div class="table-responsive">
+    <table>
+      <thead>
+        <tr>
+          <th>Tanggal & Jam</th>
+          <th>Tipe</th>
+          <th>Nominal</th>
+          <th>Keterangan / Anggota</th>
+          <th>Sumber</th>
+          <th>Dicatat Oleh</th>
+        </tr>
+      </thead>
+      <tbody>
+        <% if (transactions.length === 0) { %>
+          <tr>
+            <td colspan="6" style="text-align: center; padding: 36px; color: var(--text-dim);">
+              Belum ada riwayat transaksi kas yang dicatat.
+            </td>
+          </tr>
+        <% } %>
+        <% transactions.forEach(t => { %>
+          <tr>
+            <td style="color: var(--text-muted); font-size: 0.82rem;">
+              <%= new Date(t.created_at).toLocaleString('id-ID', { dateStyle: 'medium', timeStyle: 'short' }) %>
+            </td>
+            <td>
+              <% if (t.type === 'masuk') { %>
+                <span class="badge badge-connected">🟢 Pemasukan</span>
+              <% } else { %>
+                <span class="badge badge-disconnected">🔴 Pengeluaran</span>
+              <% } %>
+            </td>
+            <td>
+              <strong style="color: <%= t.type === 'masuk' ? '#34d399' : '#fb7185' %>; font-size: 0.95rem;">
+                <%= t.type === 'masuk' ? '+' : '-' %> <%= formatter.formatRupiah(t.amount) %>
+              </strong>
+            </td>
+            <td>
+              <strong style="color: #fff;"><%= t.description %></strong>
+              <% if (t.member_name) { %>
+                <br><span style="font-size: 0.78rem; color: var(--accent-primary);">👤 <%= t.member_name %></span>
+              <% } %>
+            </td>
+            <td>
+              <span class="badge" style="background: rgba(255, 255, 255, 0.05); color: var(--text-muted);">
+                <%= t.source === 'bot_wa' ? '🤖 WhatsApp' : '🌐 Web' %>
+              </span>
+            </td>
+            <td><%= t.created_by %></td>
+          </tr>
+        <% }) %>
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<!-- Modal Tambah Transaksi Kas -->
+<div class="modal-overlay" id="modalAddKas">
+  <div class="modal-content">
+    <div class="card-header">
+      <h3 class="card-title">Catat Transaksi Kas Baru</h3>
+      <button onclick="closeModal('modalAddKas')" style="background: none; border: none; color: var(--text-muted); cursor: pointer; font-size: 1.2rem;">✕</button>
+    </div>
+    <form action="/kas/add" method="POST">
+      <div class="form-group">
+        <label for="kasType">Jenis Mutasi</label>
+        <select id="kasType" name="type" required>
+          <option value="masuk">🟢 Pemasukan (Kas Masuk)</option>
+          <option value="keluar">🔴 Pengeluaran (Kas Keluar)</option>
+        </select>
+      </div>
+
+      <div class="form-group">
+        <label for="kasAmount">Nominal (Rp)</label>
+        <input type="number" id="kasAmount" name="amount" placeholder="Contoh: 50000" min="1" required>
+      </div>
+
+      <div class="form-group">
+        <label for="kasMember">Terkait Mahasiswa (Opsional)</label>
+        <select id="kasMember" name="member_id">
+          <option value="">-- Umum / Tanpa Mahasiswa --</option>
+          <% members.forEach(m => { %>
+            <option value="<%= m.id %>"><%= m.name %></option>
+          <% }) %>
+        </select>
+      </div>
+
+      <div class="form-group">
+        <label for="kasDesc">Keterangan Transaksi</label>
+        <input type="text" id="kasDesc" name="description" placeholder="Contoh: Beli spidol papan tulis" required>
+      </div>
+
+      <div style="display: flex; justify-content: flex-end; gap: 10px; margin-top: 20px;">
+        <button type="button" onclick="closeModal('modalAddKas')" class="btn btn-secondary">Batal</button>
+        <button type="submit" class="btn btn-primary">Simpan Transaksi</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<%- include('layout/footer') %>

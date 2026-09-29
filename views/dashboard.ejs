@@ -1,0 +1,162 @@
+<%- include('layout/header', { pageTitle: 'Overview Dashboard', pageDesc: 'Monitoring status bot, pairing WhatsApp, saldo kas, dan jadwal hari ini' }) %>
+
+<!-- WhatsApp Bot Status Banner -->
+<div id="waStatusContainer" data-status="<%= botState.status %>" class="glass-card" style="border-left: 4px solid <%= botState.status === 'connected' ? 'var(--accent-emerald)' : (botState.status === 'waiting_code' ? 'var(--accent-amber)' : 'var(--accent-rose)') %>;">
+  <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 16px;">
+    <div style="display: flex; align-items: center; gap: 14px;">
+      <div style="font-size: 2rem;">
+        <%= botState.status === 'connected' ? '🟢' : (botState.status === 'waiting_code' ? '⏳' : '🔴') %>
+      </div>
+      <div>
+        <div style="display: flex; align-items: center; gap: 10px;">
+          <h3 style="font-size: 1.15rem; font-weight: 700;">Status Koneksi WhatsApp</h3>
+          <% if (botState.status === 'connected') { %>
+            <span class="badge badge-connected"><span class="status-dot"></span> Terhubung (<%= botState.botNumber %>)</span>
+          <% } else if (botState.status === 'waiting_code') { %>
+            <span class="badge badge-waiting"><span class="status-dot"></span> Menunggu Input Kode di HP</span>
+          <% } else { %>
+            <span class="badge badge-disconnected"><span class="status-dot"></span> Terputus / Belum Taut</span>
+          <% } %>
+        </div>
+        <p style="font-size: 0.85rem; color: var(--text-muted); margin-top: 4px;">
+          <% if (botState.status === 'connected') { %>
+            Bot aktif dan siap merespon perintah <code>!bot</code> dari admin serta mengirim notifikasi otomatis.
+          <% } else if (botState.status === 'waiting_code') { %>
+            Buka WhatsApp di HP Anda &gt; Perangkat Tertaut &gt; Tautkan dengan nomor telepon, lalu masukkan kode 8 digit di bawah.
+          <% } else { %>
+            Silakan masukkan nomor telepon bot di bawah untuk mendapatkan kode pairing 8 digit.
+          <% } %>
+        </p>
+      </div>
+    </div>
+
+    <div>
+      <% if (botState.status !== 'connected') { %>
+        <button onclick="openModal('modalPairing')" class="btn btn-primary btn-sm">
+          📱 Hubungkan Nomor WA
+        </button>
+      <% } %>
+    </div>
+  </div>
+
+  <!-- Box Khusus Pairing Code -->
+  <% if (botState.pairingCode) { %>
+    <div style="margin-top: 20px;" class="pairing-box">
+      <div>
+        <p style="font-size: 0.85rem; color: var(--text-muted); margin-bottom: 6px;">
+          🔑 Masukkan kode ini pada WhatsApp HP Anda:
+        </p>
+        <div class="pairing-code-display" id="pairingCodeVal">
+          <%= botState.pairingCode %>
+        </div>
+      </div>
+      <div style="display: flex; gap: 10px;">
+        <button onclick="copyPairingCode('<%= botState.pairingCode %>')" class="btn btn-secondary">
+          📋 Salin Kode
+        </button>
+      </div>
+    </div>
+  <% } %>
+</div>
+
+<!-- Quick Stats -->
+<div class="stats-grid">
+  <div class="stat-card">
+    <div class="stat-icon" style="color: var(--accent-emerald);">💰</div>
+    <div class="stat-info">
+      <p>Sisa Saldo Kas</p>
+      <h3><%= formatter.formatRupiah(saldoSummary.saldo) %></h3>
+    </div>
+  </div>
+
+  <div class="stat-card">
+    <div class="stat-icon" style="color: var(--accent-cyan);">👥</div>
+    <div class="stat-info">
+      <p>Mahasiswa Terdaftar</p>
+      <h3><%= totalMembers %> Orang</h3>
+    </div>
+  </div>
+
+  <div class="stat-card">
+    <div class="stat-icon" style="color: var(--accent-primary);">📚</div>
+    <div class="stat-info">
+      <p>Jadwal <%= todayDay.toUpperCase() %></p>
+      <h3><%= todaySchedules.length %> Mata Kuliah</h3>
+    </div>
+  </div>
+
+  <div class="stat-card">
+    <div class="stat-icon" style="color: var(--accent-amber);">📅</div>
+    <div class="stat-info">
+      <p>Iuran Minggu Ini</p>
+      <h3><%= weeklyStatus.totalPaid %> / <%= weeklyStatus.totalMembers %> Lunas</h3>
+    </div>
+  </div>
+</div>
+
+<!-- Jadwal Kuliah Hari Ini -->
+<div class="glass-card">
+  <div class="card-header">
+    <h3 class="card-title">
+      <span>📖</span> Jadwal Kuliah Hari Ini (<%= todayDay.toUpperCase() %>)
+    </h3>
+    <a href="/schedules" class="btn btn-secondary btn-sm">Kelola Seluruh Jadwal →</a>
+  </div>
+
+  <% if (todaySchedules.length === 0) { %>
+    <div style="text-align: center; padding: 36px 20px; color: var(--text-dim);">
+      <div style="font-size: 2.5rem; margin-bottom: 8px;">🎉</div>
+      <p>Tidak ada perkuliahan hari ini! Nikmati waktu istirahat Anda.</p>
+    </div>
+  <% } else { %>
+    <div class="table-responsive">
+      <table>
+        <thead>
+          <tr>
+            <th>Jam</th>
+            <th>Mata Kuliah</th>
+            <th>Dosen Pengampu</th>
+            <th>Catatan / Ruangan</th>
+            <th>Status Notifikasi</th>
+          </tr>
+        </thead>
+        <tbody>
+          <% todaySchedules.forEach(s => { %>
+            <tr>
+              <td><strong><%= formatter.formatTime(s.start_time) %> - <%= formatter.formatTime(s.end_time) %></strong></td>
+              <td><span style="font-weight: 600; color: #fff;"><%= s.course_name %></span></td>
+              <td><%= s.lecturer %></td>
+              <td><%= s.note || '<span style="color: var(--text-dim);">-</span>' %></td>
+              <td>
+                <span class="badge badge-connected">Otomatis (H-5 & H-0)</span>
+              </td>
+            </tr>
+          <% }) %>
+        </tbody>
+      </table>
+    </div>
+  <% } %>
+</div>
+
+<!-- Modal Minta Pairing Code Baru -->
+<div class="modal-overlay" id="modalPairing">
+  <div class="modal-content">
+    <div class="card-header">
+      <h3 class="card-title">Hubungkan Akun WhatsApp</h3>
+      <button onclick="closeModal('modalPairing')" style="background: none; border: none; color: var(--text-muted); cursor: pointer; font-size: 1.2rem;">✕</button>
+    </div>
+    <form id="formPairingCode">
+      <div class="form-group">
+        <label for="pairingPhone">Nomor WhatsApp Bot (Format: 628xxxx)</label>
+        <input type="text" id="pairingPhone" name="phoneNumber" placeholder="Contoh: 6281234567890" value="<%= botState.botNumber || '' %>" required>
+        <small style="color: var(--text-dim); margin-top: 4px;">Pastikan diawali kode negara 62 tanpa spasi atau strip.</small>
+      </div>
+      <div style="display: flex; justify-content: flex-end; gap: 10px; margin-top: 20px;">
+        <button type="button" onclick="closeModal('modalPairing')" class="btn btn-secondary">Batal</button>
+        <button type="submit" class="btn btn-primary">Dapatkan Pairing Code</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<%- include('layout/footer') %>

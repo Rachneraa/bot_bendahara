@@ -1,0 +1,208 @@
+<%- include('layout/header', { pageTitle: 'Manajemen Jadwal Kuliah', pageDesc: 'Atur jadwal mata kuliah mingguan yang akan otomatis diingatkan H-5 Jam dan H-0' }) %>
+
+<div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 16px;">
+  <div>
+    <h2 style="font-size: 1.2rem; font-weight: 700;">Daftar Mata Kuliah Mingguan</h2>
+    <p style="font-size: 0.85rem; color: var(--text-muted);">
+      Sistem cron akan memeriksa jadwal setiap menit dan mengirim pengingat ke grup WhatsApp.
+    </p>
+  </div>
+  <button onclick="openModal('modalAddSchedule')" class="btn btn-primary">
+    ➕ Tambah Jadwal Kuliah
+  </button>
+</div>
+
+<!-- Tabel Jadwal -->
+<div class="glass-card">
+  <div class="table-responsive">
+    <table>
+      <thead>
+        <tr>
+          <th>Hari</th>
+          <th>Jam</th>
+          <th>Mata Kuliah</th>
+          <th>Dosen Pengampu</th>
+          <th>Catatan / Lokasi</th>
+          <th>Status</th>
+          <th style="text-align: right;">Aksi</th>
+        </tr>
+      </thead>
+      <tbody>
+        <% if (schedules.length === 0) { %>
+          <tr>
+            <td colspan="7" style="text-align: center; padding: 36px; color: var(--text-dim);">
+              Belum ada jadwal kuliah yang ditambahkan. Silakan klik tombol "Tambah Jadwal Kuliah".
+            </td>
+          </tr>
+        <% } %>
+        <% schedules.forEach(s => { %>
+          <tr>
+            <td>
+              <span class="badge" style="background: rgba(99, 102, 241, 0.15); color: #a5b4fc; text-transform: uppercase;">
+                <%= s.day_of_week %>
+              </span>
+            </td>
+            <td>
+              <strong><%= formatter.formatTime(s.start_time) %> - <%= formatter.formatTime(s.end_time) %></strong>
+            </td>
+            <td>
+              <strong style="color: #fff; font-size: 0.95rem;"><%= s.course_name %></strong>
+            </td>
+            <td><%= s.lecturer %></td>
+            <td><%= s.note || '<span style="color: var(--text-dim);">-</span>' %></td>
+            <td>
+              <form action="/schedules/toggle/<%= s.id %>" method="POST" style="display: inline;">
+                <button type="submit" class="badge <%= s.is_active ? 'badge-connected' : 'badge-disconnected' %>" style="cursor: pointer; border: none;">
+                  <%= s.is_active ? 'Aktif' : 'Nonaktif' %>
+                </button>
+              </form>
+            </td>
+            <td style="text-align: right;">
+              <div style="display: inline-flex; gap: 8px;">
+                <button onclick="editSchedule('<%= s.id %>', '<%= s.day_of_week %>', '<%= s.start_time.slice(0, 5) %>', '<%= s.end_time.slice(0, 5) %>', '<%= s.course_name.replace(/'/g, &quot;\\'&quot;) %>', '<%= s.lecturer.replace(/'/g, &quot;\\'&quot;) %>', '<%= (s.note || &quot;&quot;).replace(/'/g, &quot;\\'&quot;) %>', <%= s.is_active %>)" class="btn btn-secondary btn-sm" title="Edit">
+                  ✏️
+                </button>
+                <form action="/schedules/delete/<%= s.id %>" method="POST" onsubmit="return confirm('Hapus jadwal matkul <%= s.course_name %>?');" style="display: inline;">
+                  <button type="submit" class="btn btn-danger btn-sm" title="Hapus">
+                    🗑️
+                  </button>
+                </form>
+              </div>
+            </td>
+          </tr>
+        <% }) %>
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<!-- Modal Tambah Jadwal -->
+<div class="modal-overlay" id="modalAddSchedule">
+  <div class="modal-content">
+    <div class="card-header">
+      <h3 class="card-title">Tambah Jadwal Kuliah</h3>
+      <button onclick="closeModal('modalAddSchedule')" style="background: none; border: none; color: var(--text-muted); cursor: pointer; font-size: 1.2rem;">✕</button>
+    </div>
+    <form action="/schedules/add" method="POST">
+      <div class="form-group">
+        <label for="dayOfWeek">Hari Kuliah</label>
+        <select id="dayOfWeek" name="day_of_week" required>
+          <option value="senin">Senin</option>
+          <option value="selasa">Selasa</option>
+          <option value="rabu">Rabu</option>
+          <option value="kamis">Kamis</option>
+          <option value="jumat">Jumat</option>
+          <option value="sabtu">Sabtu</option>
+          <option value="minggu">Minggu</option>
+        </select>
+      </div>
+
+      <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 14px;">
+        <div class="form-group">
+          <label for="startTime">Jam Mulai</label>
+          <input type="time" id="startTime" name="start_time" required>
+        </div>
+        <div class="form-group">
+          <label for="endTime">Jam Selesai</label>
+          <input type="time" id="endTime" name="end_time" required>
+        </div>
+      </div>
+
+      <div class="form-group">
+        <label for="courseName">Mata Kuliah / Pelajaran</label>
+        <input type="text" id="courseName" name="course_name" placeholder="Contoh: Pemrograman Web Lanjut" required>
+      </div>
+
+      <div class="form-group">
+        <label for="lecturerName">Dosen Pengampu</label>
+        <input type="text" id="lecturerName" name="lecturer" placeholder="Contoh: Dr. Ir. Rahmat, M.Kom" required>
+      </div>
+
+      <div class="form-group">
+        <label for="scheduleNote">Catatan / Ruangan / Tugas (Opsional)</label>
+        <input type="text" id="scheduleNote" name="note" placeholder="Contoh: Lab Komputer 3 / Bawa laptop">
+      </div>
+
+      <div style="display: flex; justify-content: flex-end; gap: 10px; margin-top: 20px;">
+        <button type="button" onclick="closeModal('modalAddSchedule')" class="btn btn-secondary">Batal</button>
+        <button type="submit" class="btn btn-primary">Simpan Jadwal</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- Modal Edit Jadwal -->
+<div class="modal-overlay" id="modalEditSchedule">
+  <div class="modal-content">
+    <div class="card-header">
+      <h3 class="card-title">Edit Jadwal Kuliah</h3>
+      <button onclick="closeModal('modalEditSchedule')" style="background: none; border: none; color: var(--text-muted); cursor: pointer; font-size: 1.2rem;">✕</button>
+    </div>
+    <form id="formEditSchedule" method="POST">
+      <div class="form-group">
+        <label for="editDay">Hari Kuliah</label>
+        <select id="editDay" name="day_of_week" required>
+          <option value="senin">Senin</option>
+          <option value="selasa">Selasa</option>
+          <option value="rabu">Rabu</option>
+          <option value="kamis">Kamis</option>
+          <option value="jumat">Jumat</option>
+          <option value="sabtu">Sabtu</option>
+          <option value="minggu">Minggu</option>
+        </select>
+      </div>
+
+      <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 14px;">
+        <div class="form-group">
+          <label for="editStartTime">Jam Mulai</label>
+          <input type="time" id="editStartTime" name="start_time" required>
+        </div>
+        <div class="form-group">
+          <label for="editEndTime">Jam Selesai</label>
+          <input type="time" id="editEndTime" name="end_time" required>
+        </div>
+      </div>
+
+      <div class="form-group">
+        <label for="editCourse">Mata Kuliah / Pelajaran</label>
+        <input type="text" id="editCourse" name="course_name" required>
+      </div>
+
+      <div class="form-group">
+        <label for="editLecturer">Dosen Pengampu</label>
+        <input type="text" id="editLecturer" name="lecturer" required>
+      </div>
+
+      <div class="form-group">
+        <label for="editNote">Catatan / Ruangan / Tugas</label>
+        <input type="text" id="editNote" name="note">
+      </div>
+
+      <div class="form-group" style="flex-direction: row; align-items: center; gap: 10px;">
+        <input type="checkbox" id="editActive" name="is_active" value="1" style="width: auto;">
+        <label for="editActive" style="margin: 0; cursor: pointer;">Jadwal Aktif (Kirim Pengingat Otomatis)</label>
+      </div>
+
+      <div style="display: flex; justify-content: flex-end; gap: 10px; margin-top: 20px;">
+        <button type="button" onclick="closeModal('modalEditSchedule')" class="btn btn-secondary">Batal</button>
+        <button type="submit" class="btn btn-primary">Simpan Perubahan</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<script>
+  function editSchedule(id, day, start, end, course, lecturer, note, isActive) {
+    document.getElementById('formEditSchedule').action = '/schedules/edit/' + id;
+    document.getElementById('editDay').value = day;
+    document.getElementById('editStartTime').value = start;
+    document.getElementById('editEndTime').value = end;
+    document.getElementById('editCourse').value = course;
+    document.getElementById('editLecturer').value = lecturer;
+    document.getElementById('editNote').value = note;
+    document.getElementById('editActive').checked = Boolean(isActive);
+    openModal('modalEditSchedule');
+  }
+</script>
+
+<%- include('layout/footer') %>
