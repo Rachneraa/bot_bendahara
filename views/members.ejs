@@ -96,11 +96,25 @@
             <td style="text-align: right;">
               <div style="display: inline-flex; gap: 8px;">
                 <% if (!isPaid) { %>
-                  <button onclick="quickPay('<%= m.id %>', '<%= m.name %>')" class="btn btn-success btn-sm" title="Tandai Bayar Iuran">
+                  <button 
+                    type="button"
+                    data-id="<%= m.id %>" 
+                    data-name="<%= m.name %>" 
+                    onclick="openQuickPayModal(this)" 
+                    class="btn btn-success btn-sm" 
+                    title="Tandai Bayar Iuran">
                     💵 Bayar
                   </button>
                 <% } %>
-                <button onclick="editMember('<%= m.id %>', '<%= m.name %>', '<%= m.phone_number || '' %>', <%= m.is_active %>)" class="btn btn-secondary btn-sm" title="Edit">
+                <button 
+                  type="button"
+                  data-id="<%= m.id %>" 
+                  data-name="<%= m.name %>" 
+                  data-phone="<%= m.phone_number || '' %>" 
+                  data-active="<%= m.is_active ? 1 : 0 %>" 
+                  onclick="openEditMemberModal(this)" 
+                  class="btn btn-secondary btn-sm" 
+                  title="Edit">
                   ✏️
                 </button>
                 <form action="/members/delete/<%= m.id %>" method="POST" onsubmit="return confirm('Hapus <%= m.name %> dari daftar?');" style="display: inline;">
@@ -200,17 +214,19 @@
 </div>
 
 <script>
-  function editMember(id, name, phone, isActive) {
-    document.getElementById('formEditMember').action = '/members/edit/' + id;
-    document.getElementById('editName').value = name;
-    document.getElementById('editPhone').value = phone;
-    document.getElementById('editActive').checked = Boolean(isActive);
+  function openEditMemberModal(btn) {
+    const ds = btn.dataset;
+    document.getElementById('formEditMember').action = '/members/edit/' + ds.id;
+    document.getElementById('editName').value = ds.name;
+    document.getElementById('editPhone').value = ds.phone;
+    document.getElementById('editActive').checked = ds.active === '1';
     openModal('modalEditMember');
   }
 
-  function quickPay(id, name) {
-    document.getElementById('payMemberId').value = id;
-    document.getElementById('payMemberName').innerText = name;
+  function openQuickPayModal(btn) {
+    const ds = btn.dataset;
+    document.getElementById('payMemberId').value = ds.id;
+    document.getElementById('payMemberName').innerText = ds.name;
     openModal('modalQuickPay');
   }
 </script>

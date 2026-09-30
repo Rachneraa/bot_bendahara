@@ -59,7 +59,19 @@
             </td>
             <td style="text-align: right;">
               <div style="display: inline-flex; gap: 8px;">
-                <button onclick="editSchedule('<%= s.id %>', '<%= s.day_of_week %>', '<%= s.start_time.slice(0, 5) %>', '<%= s.end_time.slice(0, 5) %>', '<%= s.course_name.replace(/'/g, &quot;\\'&quot;) %>', '<%= s.lecturer.replace(/'/g, &quot;\\'&quot;) %>', '<%= (s.note || &quot;&quot;).replace(/'/g, &quot;\\'&quot;) %>', <%= s.is_active %>)" class="btn btn-secondary btn-sm" title="Edit">
+                <button 
+                  type="button"
+                  data-id="<%= s.id %>"
+                  data-day="<%= s.day_of_week %>"
+                  data-start="<%= s.start_time.slice(0, 5) %>"
+                  data-end="<%= s.end_time.slice(0, 5) %>"
+                  data-course="<%= s.course_name %>"
+                  data-lecturer="<%= s.lecturer %>"
+                  data-note="<%= s.note || '' %>"
+                  data-active="<%= s.is_active ? 1 : 0 %>"
+                  onclick="openEditScheduleModal(this)"
+                  class="btn btn-secondary btn-sm" 
+                  title="Edit">
                   ✏️
                 </button>
                 <form action="/schedules/delete/<%= s.id %>" method="POST" onsubmit="return confirm('Hapus jadwal matkul <%= s.course_name %>?');" style="display: inline;">
@@ -192,15 +204,16 @@
 </div>
 
 <script>
-  function editSchedule(id, day, start, end, course, lecturer, note, isActive) {
-    document.getElementById('formEditSchedule').action = '/schedules/edit/' + id;
-    document.getElementById('editDay').value = day;
-    document.getElementById('editStartTime').value = start;
-    document.getElementById('editEndTime').value = end;
-    document.getElementById('editCourse').value = course;
-    document.getElementById('editLecturer').value = lecturer;
-    document.getElementById('editNote').value = note;
-    document.getElementById('editActive').checked = Boolean(isActive);
+  function openEditScheduleModal(btn) {
+    const ds = btn.dataset;
+    document.getElementById('formEditSchedule').action = '/schedules/edit/' + ds.id;
+    document.getElementById('editDay').value = ds.day;
+    document.getElementById('editStartTime').value = ds.start;
+    document.getElementById('editEndTime').value = ds.end;
+    document.getElementById('editCourse').value = ds.course;
+    document.getElementById('editLecturer').value = ds.lecturer;
+    document.getElementById('editNote').value = ds.note;
+    document.getElementById('editActive').checked = ds.active === '1';
     openModal('modalEditSchedule');
   }
 </script>
