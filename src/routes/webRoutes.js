@@ -118,18 +118,36 @@ router.get('/api/bot/status', requireAuth, (req, res) => {
 router.get('/members', requireAuth, async (req, res) => {
   try {
     const members = await kasService.getMembers();
-    const currentWeek = formatter.getWeekNumber();
-    const weeklyStatus = await kasService.getWeeklyStatus(currentWeek.week, currentWeek.year);
+    const activeSetting = await messageService.getSetting('active_semester_week', '1');
+    const activeWeek = parseInt(activeSetting, 10) || 1;
+    const selectedWeek = req.query.week ? parseInt(req.query.week, 10) : activeWeek;
+    const selectedYear = req.query.year ? parseInt(req.query.year, 10) : new Date().getFullYear();
+
+    const weeklyStatus = await kasService.getWeeklyStatus(selectedWeek, selectedYear);
 
     res.render('members', {
       user: req.session.user,
       members,
       weeklyStatus,
-      currentWeek,
+      selectedWeek,
+      selectedYear,
+      activeWeek,
       formatter
     });
   } catch (err) {
     res.status(500).send('Error: ' + err.message);
+  }
+});
+
+router.post('/members/set-active-week', requireAuth, async (req, res) => {
+  try {
+    const { active_week } = req.body;
+    if (active_week) {
+      await messageService.setSetting('active_semester_week', active_week);
+    }
+    res.redirect('/members?week=' + active_week);
+  } catch (err) {
+    res.redirect('/members?error=' + encodeURIComponent(err.message));
   }
 });
 

@@ -1,11 +1,45 @@
 <%- include('layout/header', { pageTitle: 'Data Mahasiswa & Iuran', pageDesc: 'Kelola data seluruh anggota kelas dan pantau pelunasan kas mingguan' }) %>
 
-<div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 16px;">
+<!-- Toolbar Pemilih Minggu Semester -->
+<div class="glass-card" style="padding: 16px 22px; margin-bottom: 20px;">
+  <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 14px;">
+    <div style="display: flex; align-items: center; gap: 12px; flex-wrap: wrap;">
+      <label for="selectWeek" style="font-weight: 600; color: #fff; margin: 0;">📅 Pilih Minggu Kuliah:</label>
+      <select id="selectWeek" onchange="window.location.href='/members?week=' + this.value" style="width: auto; padding: 7px 14px; font-weight: 600;">
+        <% for (let w = 1; w <= 16; w++) { %>
+          <option value="<%= w %>" <%= selectedWeek === w ? 'selected' : '' %>>
+            Minggu ke-<%= w %> <%= activeWeek === w ? '🌟 (Minggu Aktif)' : '' %>
+          </option>
+        <% } %>
+      </select>
+
+      <% if (selectedWeek !== activeWeek) { %>
+        <form action="/members/set-active-week" method="POST" style="display: inline;">
+          <input type="hidden" name="active_week" value="<%= selectedWeek %>">
+          <button type="submit" class="btn btn-secondary btn-sm" title="Jadikan minggu ini sebagai patokan minggu perkuliahan berjalan">
+            ⭐ Set Jadi Minggu Aktif
+          </button>
+        </form>
+      <% } else { %>
+        <span class="badge badge-connected">🌟 Minggu Berjalan</span>
+      <% } %>
+    </div>
+
+    <div>
+      <span style="font-size: 0.88rem; color: var(--text-muted);">
+        Status Minggu ke-<%= selectedWeek %>: 
+        <strong style="color: var(--accent-emerald);"><%= weeklyStatus.totalPaid %> Lunas</strong> • 
+        <strong style="color: var(--accent-rose);"><%= weeklyStatus.totalUnpaid %> Belum</strong>
+      </span>
+    </div>
+  </div>
+</div>
+
+<div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 16px; margin-bottom: 16px;">
   <div>
-    <h2 style="font-size: 1.2rem; font-weight: 700;">Status Iuran: Minggu ke-<%= currentWeek.week %> (<%= currentWeek.year %>)</h2>
+    <h2 style="font-size: 1.2rem; font-weight: 700;">Daftar Mahasiswa (Iuran Minggu ke-<%= selectedWeek %>)</h2>
     <p style="font-size: 0.85rem; color: var(--text-muted);">
-      Lunas: <strong style="color: var(--accent-emerald);"><%= weeklyStatus.totalPaid %></strong> • 
-      Belum: <strong style="color: var(--accent-rose);"><%= weeklyStatus.totalUnpaid %></strong> dari total <%= weeklyStatus.totalMembers %> mahasiswa aktif
+      Total: <%= weeklyStatus.totalMembers %> mahasiswa aktif
     </p>
   </div>
   <button onclick="openModal('modalAddMember')" class="btn btn-primary">
@@ -144,11 +178,11 @@
     </div>
     <form action="/members/pay-iuran" method="POST">
       <input type="hidden" id="payMemberId" name="member_id">
-      <input type="hidden" name="week_number" value="<%= currentWeek.week %>">
-      <input type="hidden" name="year" value="<%= currentWeek.year %>">
+      <input type="hidden" name="week_number" value="<%= selectedWeek %>">
+      <input type="hidden" name="year" value="<%= selectedYear %>">
 
       <p style="font-size: 0.95rem; margin-bottom: 16px;">
-        Tandai lunas iuran minggu ke-<strong><%= currentWeek.week %> (<%= currentWeek.year %>)</strong> untuk mahasiswa: <br>
+        Tandai lunas iuran minggu ke-<strong><%= selectedWeek %> (<%= selectedYear %>)</strong> untuk mahasiswa: <br>
         <strong id="payMemberName" style="color: var(--accent-primary); font-size: 1.1rem;"></strong>
       </p>
 

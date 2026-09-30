@@ -5,7 +5,7 @@ import dotenv from 'dotenv';
 import { fileURLToPath } from 'url';
 
 import { initDatabase } from './config/database.js';
-import { initBaileys } from './src/bot/baileys.js';
+import { initBaileys, botState } from './src/bot/baileys.js';
 import { startScheduler } from './src/services/scheduler.js';
 import webRoutes from './src/routes/webRoutes.js';
 
@@ -70,11 +70,17 @@ async function bootstrap() {
     console.log(`[WEB] Dashboard aktif di http://localhost:${PORT} (Port: ${PORT})`);
   });
 
-  // 3. Inisialisasi Socket Baileys WhatsApp
-  await initBaileys();
-
-  // 4. Inisialisasi Cron Scheduler Pengingat Kelas
-  startScheduler();
+  // 3. Inisialisasi Socket Baileys WhatsApp & Scheduler
+  const enableWA = process.env.ENABLE_WHATSAPP !== 'false';
+  if (enableWA) {
+    await initBaileys();
+    startScheduler();
+  } else {
+    console.log('[WA] 🟡 Mode dev lokal aktif (ENABLE_WHATSAPP=false).');
+    console.log('[WA] Socket WhatsApp dinonaktifkan di lokal agar bot utama di server cPanel tidak terputus.');
+    botState.status = 'disconnected';
+    botState.lastError = 'WhatsApp dinonaktifkan di lokal (ENABLE_WHATSAPP=false). Bot WA berjalan di server cPanel.';
+  }
 }
 
 bootstrap().catch(err => {

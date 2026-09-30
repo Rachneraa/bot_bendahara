@@ -123,17 +123,20 @@ export async function handleCommand(sock, messageInfo) {
         }
 
         if (member) {
-          const currentWeek = formatter.getWeekNumber();
+          const activeWeekSetting = await messageService.getSetting('active_semester_week', '1');
+          const targetWeek = parseInt(activeWeekSetting, 10) || 1;
+          const targetYear = new Date().getFullYear();
+
           await kasService.recordIuranWeekly({
             member_id: member.id,
-            week_number: currentWeek.week,
-            year: currentWeek.year,
+            week_number: targetWeek,
+            year: targetYear,
             amount: nominal,
             created_by: senderNumber,
             source: 'bot_wa'
           });
           const summary = await kasService.getSaldoSummary();
-          await reply(`✅ *KAS MASUK (IURAN) BERHASIL DICATAT*\n\n👤 Anggota: *${member.name}*\n💵 Jumlah : *${formatter.formatRupiah(nominal)}*\n📅 Periode: Minggu ke-${currentWeek.week} (${currentWeek.year})\n💎 Saldo Kas Kini: *${formatter.formatRupiah(summary.saldo)}*`);
+          await reply(`✅ *KAS MASUK (IURAN) BERHASIL DICATAT*\n\n👤 Anggota: *${member.name}*\n💵 Jumlah : *${formatter.formatRupiah(nominal)}*\n📅 Periode: Minggu ke-${targetWeek} (${targetYear})\n💎 Saldo Kas Kini: *${formatter.formatRupiah(summary.saldo)}*`);
         } else {
           const desc = remainingArgs || 'Pemasukan Kas';
           await kasService.addTransaction({

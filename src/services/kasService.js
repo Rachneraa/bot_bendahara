@@ -107,9 +107,12 @@ export async function recordIuranWeekly({ member_id, week_number, year, amount, 
 }
 
 export async function getWeeklyStatus(week_number = null, year = null) {
-  const current = getWeekNumber();
-  const targetWeek = week_number ? parseInt(week_number, 10) : current.week;
-  const targetYear = year ? parseInt(year, 10) : current.year;
+  let targetWeek = week_number ? parseInt(week_number, 10) : null;
+  if (!targetWeek) {
+    const [row] = await query("SELECT value FROM settings WHERE key_name = 'active_semester_week' LIMIT 1");
+    targetWeek = row && row.value ? parseInt(row.value, 10) : 1;
+  }
+  const targetYear = year ? parseInt(year, 10) : new Date().getFullYear();
 
   const rows = await query(`
     SELECT 
