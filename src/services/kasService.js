@@ -1,5 +1,6 @@
 import { query } from '../../config/database.js';
 import { getWeekNumber } from '../utils/formatter.js';
+import { getSetting, setSetting } from './messageService.js';
 
 export async function getSaldoSummary() {
   const [row] = await query(`
@@ -268,6 +269,65 @@ export async function getWeeklyStatus(week_number = null, year = null) {
   };
 }
 
+export async function startTestSession() {
+  const [mRow] = await query('SELECT COALESCE(MAX(id), 0) AS max_m FROM members');
+  const [tRow] = await query('SELECT COALESCE(MAX(id), 0) AS max_t FROM kas_transactions');
+  const maxM = mRow?.max_m || 0;
+  const maxT = tRow?.max_t || 0;
+  const now = new Date().toISOString();
+
+  await setSetting('test_session_started_at', now);
+  await setSetting('test_session_min_member_id', String(maxM));
+  await setSetting('test_session_min_tx_id', String(maxT));
+
+  return { maxM, maxT, startedAt: now };
+}
+
+export async function resetTestSession() {
+  const startedAt = await getSetting('test_session_started_at', '');
+  if (!startedAt) {
+    return { success: false, message: 'Tidak ada sesi uji coba yang sedang aktif.' };
+  }
+
+  const minMemberId = parseInt(await getSetting('test_session_min_member_id', '0'), 10);
+  const minTxId = parseInt(await getSetting('test_session_min_tx_id', '0'), 10);
+
+  const [iwCount] = await query('SELECT COUNT(*) AS total FROM iuran_weekly WHERE transaction_id > ? OR member_id > ?', [minTxId, minMemberId]);
+  const [txCount] = await query('SELECT COUNT(*) AS total FROM kas_transactions WHERE id > ?', [minTxId]);
+  const [mCount] = await query('SELECT COUNT(*) AS total FROM members WHERE id > ?', [minMemberId]);
+
+  await query('DELETE FROM iuran_weekly WHERE transaction_id > ? OR member_id > ?', [minTxId, minMemberId]);
+  await query('DELETE FROM kas_transactions WHERE id > ?', [minTxId]);
+  await query('DELETE FROM members WHERE id > ?', [minMemberId]);
+
+  await query("DELETE FROM settings WHERE key_name IN ('test_session_started_at', 'test_session_min_member_id', 'test_session_min_tx_id')");
+
+  return {
+    success: true,
+    deletedMembers: mCount?.total || 0,
+    deletedTransactions: txCount?.total || 0,
+    deletedIuran: iwCount?.total || 0
+  };
+}
+
+export async function getTestSessionStatus() {
+  const startedAt = await getSetting('test_session_started_at', '');
+  if (!startedAt) return { active: false };
+
+  const minMemberId = parseInt(await getSetting('test_session_min_member_id', '0'), 10);
+  const minTxId = parseInt(await getSetting('test_session_min_tx_id', '0'), 10);
+
+  const [txCount] = await query('SELECT COUNT(*) AS total FROM kas_transactions WHERE id > ?', [minTxId]);
+  const [mCount] = await query('SELECT COUNT(*) AS total FROM members WHERE id > ?', [minMemberId]);
+
+  return {
+    active: true,
+    startedAt,
+    testMembersCount: mCount?.total || 0,
+    testTxCount: txCount?.total || 0
+  };
+}
+
 export default {
   getSaldoSummary,
   getRecentTransactions,
@@ -281,5 +341,8 @@ export default {
   searchMemberFuzzy,
   levenshteinDistance,
   recordIuranWeekly,
-  getWeeklyStatus
+  getWeeklyStatus,
+  startTestSession,
+  resetTestSession,
+  getTestSessionStatus
 };

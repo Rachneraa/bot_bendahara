@@ -185,10 +185,12 @@ export async function handleCommand(sock, messageInfo) {
       const menuText = `
 🤖 *PANDUAN PERINTAH BOT BENDAHARA & KELAS*
 
-*👑 PENGATURAN GRUP*
+*👑 PENGATURAN GRUP & PENGUJIAN*
 • \`!bot setgroup\` : Daftarkan grup ini sebagai Grup Kelas Utama (pengingat otomatis).
 • \`!bot settestgroup\` : Daftarkan grup ini sebagai Grup Testing (uji coba fitur).
+• \`!bot test start\` : Mulai sesi uji coba fitur (merekam snapshot database).
 • \`!bot test reminder\` : Kirim simulasi pengingat kuliah ke grup testing.
+• \`!bot test reset\` : Hapus seluruh data tes & kembalikan database bersih.
 
 *💰 KAS & IURAN*
 • \`!bot kas saldo\` : Lihat total saldo kas & ringkasan.
@@ -237,7 +239,45 @@ export async function handleCommand(sock, messageInfo) {
 
     case 'test': {
       const testAction = (args[2] || '').toLowerCase();
-      if (testAction === 'reminder') {
+      if (testAction === 'start') {
+        const session = await kasService.startTestSession();
+        await reply(
+          `🧪 *SESI UJI COBA RESMI DIMULAI!*\n\n` +
+          `• Snapshot Data: Mahasiswa ID *${session.maxM}*, Transaksi ID *${session.maxT}*\n` +
+          `• Waktu Mulai: ${new Date().toLocaleTimeString('id-ID')}\n\n` +
+          `Semua data mahasiswa dan transaksi yang dibuat mulai sekarang ditandai sebagai data tes.\n` +
+          `Silakan ikuti skenario pengujian fitur.\n\n` +
+          `👉 *Selesai uji coba?* Cukup ketik:\n\`!bot test reset\`\nuntuk menghapus bersih semua data tes ini!`
+        );
+      } else if (testAction === 'reset' || testAction === 'cleanup') {
+        const res = await kasService.resetTestSession();
+        if (!res.success) {
+          await reply(`⚠️ ${res.message}\nKetik \`!bot test start\` untuk membuka sesi uji coba baru.`);
+        } else {
+          const summary = await kasService.getSaldoSummary();
+          await reply(
+            `🧹 *PEMBERSIHAN DATA TES SELESAI!*\n\n` +
+            `• Mahasiswa tes dihapus: *${res.deletedMembers} orang*\n` +
+            `• Transaksi kas tes dihapus: *${res.deletedTransactions} transaksi*\n` +
+            `• Catatan iuran tes dihapus: *${res.deletedIuran} catatan*\n\n` +
+            `💎 Sisa Saldo Kas Bersih: *${formatter.formatRupiah(summary.saldo)}*\n` +
+            `✅ Database telah bersih kembali ke kondisi semula sebelum sesi uji coba dimulai!`
+          );
+        }
+      } else if (testAction === 'status') {
+        const status = await kasService.getTestSessionStatus();
+        if (!status.active) {
+          await reply('ℹ️ Saat ini belum ada sesi uji coba yang aktif.\nKetik `!bot test start` untuk memulai.');
+        } else {
+          await reply(
+            `🧪 *STATUS SESI UJI COBA AKTIF*\n\n` +
+            `• Waktu mulai: ${status.startedAt}\n` +
+            `• Mahasiswa baru yang dibuat: *${status.testMembersCount} orang*\n` +
+            `• Transaksi kas yang dibuat: *${status.testTxCount} transaksi*\n\n` +
+            `Ketik \`!bot test reset\` kapan saja untuk menghapus semua data tes ini.`
+          );
+        }
+      } else if (testAction === 'reminder') {
         const testGroupJid = await messageService.getSetting('test_group_jid');
         const targetJid = isGroup ? groupJid : (testGroupJid || null);
 
@@ -279,7 +319,13 @@ export async function handleCommand(sock, messageInfo) {
           await reply(`✅ Simulasi pengingat kuliah berhasil dikirim ke grup testing (\`${targetJid}\`).`);
         }
       } else {
-        await reply('ℹ️ Format uji coba tersedia:\n• `!bot test reminder` : Kirim simulasi pengingat kuliah ke grup testing.');
+        await reply(
+          'ℹ️ *MENU PERINTAH PENGUJIAN (TEST SUITE):*\n\n' +
+          '• `!bot test start` : Memulai sesi uji coba (merekam snapshot database).\n' +
+          '• `!bot test status` : Cek jumlah data tes yang dibuat selama sesi.\n' +
+          '• `!bot test reminder` : Kirim simulasi pengingat jadwal kuliah ke grup testing.\n' +
+          '• `!bot test reset` : Hapus seluruh data tes & pulihkan database bersih!'
+        );
       }
       break;
     }
