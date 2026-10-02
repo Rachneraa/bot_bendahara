@@ -12,7 +12,11 @@ import { handleCommand, hasActiveSession, handleInteractiveChoice } from './comm
 import { getSetting, setSetting } from '../services/messageService.js';
 import { cleanPhoneNumber } from '../utils/formatter.js';
 
-const AUTH_DIR = path.resolve('auth_info');
+import { fileURLToPath } from 'url';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+const AUTH_DIR = path.resolve(__dirname, '../../auth_info');
 if (!fs.existsSync(AUTH_DIR)) {
   fs.mkdirSync(AUTH_DIR, { recursive: true });
 }
