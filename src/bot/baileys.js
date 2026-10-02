@@ -16,7 +16,7 @@ import { fileURLToPath } from 'url';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
-const AUTH_DIR = path.resolve(__dirname, '../../auth_info');
+export const AUTH_DIR = path.resolve(__dirname, '../../auth_info');
 if (!fs.existsSync(AUTH_DIR)) {
   fs.mkdirSync(AUTH_DIR, { recursive: true });
 }
@@ -24,6 +24,7 @@ if (!fs.existsSync(AUTH_DIR)) {
 // Global state bot yang dapat diakses oleh Web Dashboard
 export const botState = {
   status: 'disconnected', // 'disconnected' | 'connecting' | 'waiting_code' | 'connected'
+  step: 'idle',
   pairingCode: null,
   botNumber: null,
   lastError: null,
@@ -32,10 +33,25 @@ export const botState = {
 };
 
 export async function initBaileys() {
+  botState.step = 'starting';
+  botState.status = 'connecting';
   try {
+    botState.step = 'loading_auth';
     const { state, saveCreds } = await useMultiFileAuthState(AUTH_DIR);
-    const { version, isLatest } = await fetchLatestBaileysVersion();
-    console.log(`[WA] Menggunakan Baileys v${version.join('.')} (Latest: ${isLatest})`);
+
+    botState.step = 'fetching_version';
+    let version = [2, 3000, 1015901307];
+    try {
+      const vPromise = fetchLatestBaileysVersion();
+      const tPromise = new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), 3500));
+      const res = await Promise.race([vPromise, tPromise]);
+      if (res && res.version) version = res.version;
+    } catch (e) {
+      console.warn('[WA] Menggunakan fallback Baileys version:', e.message);
+    }
+
+    console.log(`[WA] Menggunakan Baileys v${version.join('.')}`);
+    botState.step = 'creating_socket';
 
     const logger = pino({ level: 'silent' });
 
@@ -53,7 +69,7 @@ export async function initBaileys() {
     });
 
     botState.socket = sock;
-    botState.status = 'connecting';
+    botState.step = sock.authState.creds.registered ? 'waiting_connection_open' : 'unregistered';
 
     // Logika Pairing Code jika belum login
     if (!sock.authState.creds.registered) {
@@ -103,6 +119,7 @@ export async function initBaileys() {
         const statusCode = lastDisconnect?.error?.output?.statusCode;
         const shouldReconnect = statusCode !== DisconnectReason.loggedOut;
         botState.status = 'disconnected';
+        botState.step = 'disconnected';
         botState.pairingCode = null;
         botState.lastError = `Disconnected (code: ${statusCode}, reason: ${lastDisconnect?.error?.message || 'unknown'})`;
         console.log(`[WA] Koneksi terputus (status: ${statusCode}). Mencoba rekoneksi: ${shouldReconnect}`);
@@ -122,6 +139,7 @@ export async function initBaileys() {
         }
       } else if (connection === 'open') {
         botState.status = 'connected';
+        botState.step = 'connected';
         botState.pairingCode = null;
         botState.botNumber = sock.user?.id ? sock.user.id.split(':')[0] : 'Aktif';
         console.log(`[WA] ✅ Bot berhasil terhubung! ID: ${sock.user?.id}`);

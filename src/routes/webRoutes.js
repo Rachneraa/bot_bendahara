@@ -5,7 +5,9 @@ import kasService from '../services/kasService.js';
 import jadwalService from '../services/jadwalService.js';
 import messageService from '../services/messageService.js';
 import formatter from '../utils/formatter.js';
-import { botState, requestPairingCodeManual, sendGroupNotification } from '../bot/baileys.js';
+import fs from 'fs';
+import path from 'path';
+import { botState, requestPairingCodeManual, sendGroupNotification, initBaileys, AUTH_DIR } from '../bot/baileys.js';
 
 const router = express.Router();
 
@@ -17,15 +19,37 @@ export function requireAuth(req, res, next) {
   return res.redirect('/login');
 }
 
-// Endpoint Health Check (untuk keep-alive cron & monitoring)
+// Endpoint Health Check (untuk keep-alive cron & self-healing)
 router.get('/api/health', (req, res) => {
+  const credsFile = path.join(AUTH_DIR, 'creds.json');
+  const hasCreds = fs.existsSync(credsFile);
+
+  // Jika bot disconnected tapi kredensial login ada, picu rekoneksi otomatis
+  if (botState.status === 'disconnected' && hasCreds && process.env.ENABLE_WHATSAPP !== 'false' && !botState.socket) {
+    console.log('[HEALTH] Memicu rekoneksi Baileys otomatis...');
+    initBaileys().catch(e => console.error('[HEALTH] Auto init error:', e));
+  }
+
   res.json({
     status: 'ok',
     botStatus: botState.status,
     botNumber: botState.botNumber,
+    step: botState.step,
+    hasCreds,
+    enableWA: process.env.ENABLE_WHATSAPP !== 'false',
     lastError: botState.lastError,
     timestamp: new Date().toISOString()
   });
+});
+
+// Endpoint pemicu koneksi ulang manual
+router.get('/api/bot/reconnect', (req, res) => {
+  try {
+    initBaileys().catch(e => console.error('[RECONNECT ERROR]', e));
+    res.json({ success: true, message: 'Inisialisasi ulang bot dipicu!' });
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message });
+  }
 });
 
 // -------------------------------------------------------------
