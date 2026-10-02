@@ -41,6 +41,15 @@ export async function addSchedule({ day_of_week, start_time, end_time, course_na
   return result.insertId;
 }
 
+export async function addBulkSchedules(list) {
+  const inserted = [];
+  for (const s of list) {
+    const id = await addSchedule(s);
+    inserted.push({ ...s, id });
+  }
+  return inserted;
+}
+
 export async function updateSchedule(id, { day_of_week, start_time, end_time, course_name, lecturer, note = '', is_active = true }) {
   await query(`
     UPDATE schedules 
@@ -134,6 +143,7 @@ export default {
   getScheduleById,
   getTodaySchedules,
   addSchedule,
+  addBulkSchedules,
   updateSchedule,
   deleteSchedule,
   toggleSchedule,

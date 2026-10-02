@@ -86,6 +86,54 @@ export function parseKasEntries(rawText) {
   return entries;
 }
 
+export function parseScheduleLines(rawText) {
+  const textWithoutCmd = rawText.replace(/^!bot\s+jadwal\s+tambah\s*/i, '').trim();
+  if (!textWithoutCmd) return [];
+
+  const rawLines = textWithoutCmd.split(/\r?\n/).map(l => l.trim()).filter(Boolean);
+  const schedules = [];
+  const validDays = ['senin', 'selasa', 'rabu', 'kamis', 'jumat', 'sabtu', 'minggu'];
+
+  for (const rawLine of rawLines) {
+    const cleanLine = rawLine
+      .replace(/^[\d]+[\.\)\-\s]+\s*/, '')
+      .replace(/^[\*\-\•\–\—]\s*/, '')
+      .trim();
+
+    if (!cleanLine) continue;
+    const parts = cleanLine.split('|');
+    if (parts.length < 4) continue;
+
+    const day = parts[0].trim().toLowerCase();
+    if (!validDays.includes(day)) continue;
+
+    const timeParts = parts[1].trim().split('-');
+    if (timeParts.length !== 2) continue;
+
+    const startTimeRaw = timeParts[0].trim();
+    const endTimeRaw = timeParts[1].trim();
+
+    const startTime = startTimeRaw.length === 5 ? `${startTimeRaw}:00` : startTimeRaw;
+    const endTime = endTimeRaw.length === 5 ? `${endTimeRaw}:00` : endTimeRaw;
+
+    const courseName = parts[2].trim();
+    const lecturer = parts[3].trim();
+    const note = parts[4] ? parts[4].trim() : '';
+
+    schedules.push({
+      day_of_week: day,
+      start_time: startTime,
+      end_time: endTime,
+      course_name: courseName,
+      lecturer,
+      note,
+      originalLine: rawLine
+    });
+  }
+
+  return schedules;
+}
+
 export async function handleInteractiveChoice(sock, messageInfo, sessionKey) {
   const { rawText, fromJid, senderNumber } = messageInfo;
   const reply = async (text, mentions = []) => {
@@ -243,9 +291,9 @@ export async function handleCommand(sock, messageInfo) {
         const session = await kasService.startTestSession();
         await reply(
           `🧪 *SESI UJI COBA RESMI DIMULAI!*\n\n` +
-          `• Snapshot Data: Mahasiswa ID *${session.maxM}*, Transaksi ID *${session.maxT}*\n` +
+          `• Snapshot Data: Mahasiswa ID *${session.maxM}*, Transaksi ID *${session.maxT}*, Jadwal ID *${session.maxS || 0}*\n` +
           `• Waktu Mulai: ${new Date().toLocaleTimeString('id-ID')}\n\n` +
-          `Semua data mahasiswa dan transaksi yang dibuat mulai sekarang ditandai sebagai data tes.\n` +
+          `Semua data mahasiswa, transaksi, dan jadwal baru yang dibuat mulai sekarang ditandai sebagai data tes.\n` +
           `Silakan ikuti skenario pengujian fitur.\n\n` +
           `👉 *Selesai uji coba?* Cukup ketik:\n\`!bot test reset\`\nuntuk menghapus bersih semua data tes ini!`
         );
@@ -259,7 +307,8 @@ export async function handleCommand(sock, messageInfo) {
             `🧹 *PEMBERSIHAN DATA TES SELESAI!*\n\n` +
             `• Mahasiswa tes dihapus: *${res.deletedMembers} orang*\n` +
             `• Transaksi kas tes dihapus: *${res.deletedTransactions} transaksi*\n` +
-            `• Catatan iuran tes dihapus: *${res.deletedIuran} catatan*\n\n` +
+            `• Catatan iuran tes dihapus: *${res.deletedIuran} catatan*\n` +
+            `• Jadwal kuliah tes dihapus: *${res.deletedSchedules || 0} jadwal*\n\n` +
             `💎 Sisa Saldo Kas Bersih: *${formatter.formatRupiah(summary.saldo)}*\n` +
             `✅ Database telah bersih kembali ke kondisi semula sebelum sesi uji coba dimulai!`
           );
@@ -273,7 +322,8 @@ export async function handleCommand(sock, messageInfo) {
             `🧪 *STATUS SESI UJI COBA AKTIF*\n\n` +
             `• Waktu mulai: ${status.startedAt}\n` +
             `• Mahasiswa baru yang dibuat: *${status.testMembersCount} orang*\n` +
-            `• Transaksi kas yang dibuat: *${status.testTxCount} transaksi*\n\n` +
+            `• Transaksi kas yang dibuat: *${status.testTxCount} transaksi*\n` +
+            `• Jadwal baru yang dibuat: *${status.testSchedulesCount || 0} jadwal*\n\n` +
             `Ketik \`!bot test reset\` kapan saja untuk menghapus semua data tes ini.`
           );
         }
@@ -604,41 +654,43 @@ export async function handleCommand(sock, messageInfo) {
 
         await reply(outText.trim());
       } else if (action === 'tambah') {
-        const fullParam = args.slice(3).join(' ');
-        const parts = fullParam.split('|');
+        const parsed = parseScheduleLines(rawText);
 
-        if (parts.length < 4) {
-          await reply(`❌ Format salah!\nGunakan: \`!bot jadwal tambah <hari>|<jam_mulai-selesai>|<matkul>|<dosen>|[note]\`\nContoh: \`!bot jadwal tambah senin|08:00-10:00|Kalkulus|Dr. Bambang|Ruang 301 Bawa kalkulator\``);
+        if (parsed.length === 0) {
+          await reply(
+            `❌ Format salah!\n\n` +
+            `*Contoh 1 Jadwal:*\n` +
+            `\`!bot jadwal tambah senin|08:00-10:00|Kalkulus|Dr. Bambang|Ruang 301\`\n\n` +
+            `*Contoh Banyak Jadwal Sekaligus:*\n` +
+            `!bot jadwal tambah\n` +
+            `- senin|08:00-10:00|Kalkulus|Dr. Bambang|Ruang 301\n` +
+            `- selasa|10:00-12:00|Algoritma|Bu Siti|Lab 2\n` +
+            `- rabu|13:00-15:00|Basis Data|Pak Joko`
+          );
           return;
         }
 
-        const day = parts[0].trim().toLowerCase();
-        const validDays = ['senin', 'selasa', 'rabu', 'kamis', 'jumat', 'sabtu', 'minggu'];
-        if (!validDays.includes(day)) {
-          await reply(`❌ Hari tidak valid! Pilih: ${validDays.join(', ')}`);
-          return;
+        if (parsed.length === 1) {
+          const s = parsed[0];
+          const newId = await jadwalService.addSchedule(s);
+          await reply(
+            `✅ *JADWAL BERHASIL DITAMBAHKAN!*\n\n` +
+            `ID: *${newId}*\n` +
+            `Hari: *${s.day_of_week.toUpperCase()}*\n` +
+            `Jam: *${formatter.formatTime(s.start_time)} - ${formatter.formatTime(s.end_time)}*\n` +
+            `Matkul: *${s.course_name}*\n` +
+            `Dosen: *${s.lecturer}*\n` +
+            `Catatan: *${s.note || '-'}*`
+          );
+        } else {
+          const inserted = await jadwalService.addBulkSchedules(parsed);
+          let replyMsg = `✅ *BERHASIL MENAMBAHKAN ${inserted.length} JADWAL KULIAH SEKALIGUS!*\n\n`;
+          inserted.forEach((s, idx) => {
+            replyMsg += `${idx + 1}. [ID: ${s.id}] *${s.day_of_week.toUpperCase()}* (${formatter.formatTime(s.start_time)}-${formatter.formatTime(s.end_time)}) : *${s.course_name}* (${s.lecturer})\n`;
+          });
+          replyMsg += `\nKetik \`!bot jadwal\` untuk melihat seluruh jadwal kuliah.`;
+          await reply(replyMsg.trim());
         }
-
-        const timeParts = parts[1].trim().split('-');
-        if (timeParts.length !== 2) {
-          await reply('❌ Format jam salah! Contoh: `08:00-10:00`');
-          return;
-        }
-
-        const courseName = parts[2].trim();
-        const lecturer = parts[3].trim();
-        const note = parts[4] ? parts[4].trim() : '';
-
-        const newId = await jadwalService.addSchedule({
-          day_of_week: day,
-          start_time: timeParts[0].trim() + ':00',
-          end_time: timeParts[1].trim() + ':00',
-          course_name: courseName,
-          lecturer,
-          note
-        });
-
-        await reply(`✅ *JADWAL BERHASIL DITAMBAHKAN!*\n\nID: *${newId}*\nHari: *${day.toUpperCase()}*\nJam: *${timeParts[0].trim()} - ${timeParts[1].trim()}*\nMatkul: *${courseName}*\nDosen: *${lecturer}*\nCatatan: *${note || '-'}*`);
       } else if (action === 'hapus') {
         const id = parseInt(args[3], 10);
         if (!id) {

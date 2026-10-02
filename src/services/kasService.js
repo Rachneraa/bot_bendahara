@@ -272,15 +272,18 @@ export async function getWeeklyStatus(week_number = null, year = null) {
 export async function startTestSession() {
   const [mRow] = await query('SELECT COALESCE(MAX(id), 0) AS max_m FROM members');
   const [tRow] = await query('SELECT COALESCE(MAX(id), 0) AS max_t FROM kas_transactions');
+  const [sRow] = await query('SELECT COALESCE(MAX(id), 0) AS max_s FROM schedules');
   const maxM = mRow?.max_m || 0;
   const maxT = tRow?.max_t || 0;
+  const maxS = sRow?.max_s || 0;
   const now = new Date().toISOString();
 
   await setSetting('test_session_started_at', now);
   await setSetting('test_session_min_member_id', String(maxM));
   await setSetting('test_session_min_tx_id', String(maxT));
+  await setSetting('test_session_min_schedule_id', String(maxS));
 
-  return { maxM, maxT, startedAt: now };
+  return { maxM, maxT, maxS, startedAt: now };
 }
 
 export async function resetTestSession() {
@@ -291,22 +294,26 @@ export async function resetTestSession() {
 
   const minMemberId = parseInt(await getSetting('test_session_min_member_id', '0'), 10);
   const minTxId = parseInt(await getSetting('test_session_min_tx_id', '0'), 10);
+  const minScheduleId = parseInt(await getSetting('test_session_min_schedule_id', '0'), 10);
 
   const [iwCount] = await query('SELECT COUNT(*) AS total FROM iuran_weekly WHERE transaction_id > ? OR member_id > ?', [minTxId, minMemberId]);
   const [txCount] = await query('SELECT COUNT(*) AS total FROM kas_transactions WHERE id > ?', [minTxId]);
   const [mCount] = await query('SELECT COUNT(*) AS total FROM members WHERE id > ?', [minMemberId]);
+  const [sCount] = await query('SELECT COUNT(*) AS total FROM schedules WHERE id > ?', [minScheduleId]);
 
   await query('DELETE FROM iuran_weekly WHERE transaction_id > ? OR member_id > ?', [minTxId, minMemberId]);
   await query('DELETE FROM kas_transactions WHERE id > ?', [minTxId]);
   await query('DELETE FROM members WHERE id > ?', [minMemberId]);
+  await query('DELETE FROM schedules WHERE id > ?', [minScheduleId]);
 
-  await query("DELETE FROM settings WHERE key_name IN ('test_session_started_at', 'test_session_min_member_id', 'test_session_min_tx_id')");
+  await query("DELETE FROM settings WHERE key_name IN ('test_session_started_at', 'test_session_min_member_id', 'test_session_min_tx_id', 'test_session_min_schedule_id')");
 
   return {
     success: true,
     deletedMembers: mCount?.total || 0,
     deletedTransactions: txCount?.total || 0,
-    deletedIuran: iwCount?.total || 0
+    deletedIuran: iwCount?.total || 0,
+    deletedSchedules: sCount?.total || 0
   };
 }
 
@@ -316,15 +323,18 @@ export async function getTestSessionStatus() {
 
   const minMemberId = parseInt(await getSetting('test_session_min_member_id', '0'), 10);
   const minTxId = parseInt(await getSetting('test_session_min_tx_id', '0'), 10);
+  const minScheduleId = parseInt(await getSetting('test_session_min_schedule_id', '0'), 10);
 
   const [txCount] = await query('SELECT COUNT(*) AS total FROM kas_transactions WHERE id > ?', [minTxId]);
   const [mCount] = await query('SELECT COUNT(*) AS total FROM members WHERE id > ?', [minMemberId]);
+  const [sCount] = await query('SELECT COUNT(*) AS total FROM schedules WHERE id > ?', [minScheduleId]);
 
   return {
     active: true,
     startedAt,
     testMembersCount: mCount?.total || 0,
-    testTxCount: txCount?.total || 0
+    testTxCount: txCount?.total || 0,
+    testSchedulesCount: sCount?.total || 0
   };
 }
 
