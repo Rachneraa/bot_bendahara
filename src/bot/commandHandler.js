@@ -3,6 +3,18 @@ import jadwalService from '../services/jadwalService.js';
 import messageService from '../services/messageService.js';
 import formatter from '../utils/formatter.js';
 
+export const pendingAmbiguousSessions = new Map();
+
+export function hasActiveSession(sessionKey) {
+  const session = pendingAmbiguousSessions.get(sessionKey);
+  if (!session) return false;
+  if (Date.now() - session.createdAt > 10 * 60 * 1000) {
+    pendingAmbiguousSessions.delete(sessionKey);
+    return false;
+  }
+  return true;
+}
+
 function parseAmount(str) {
   if (!str) return 0;
   let clean = str.toLowerCase().replace(/rp|\.|\,/g, '').trim();
@@ -11,6 +23,150 @@ function parseAmount(str) {
     return (parseFloat(clean) || 0) * 1000;
   }
   return parseFloat(clean) || 0;
+}
+
+export function parseKasEntries(rawText) {
+  let body = rawText.replace(/^!bot\s+kas\s+masuk\s*/i, '').trim();
+  if (!body) return [];
+
+  let lines = body.split(/\r?\n/).map(l => l.trim()).filter(Boolean);
+
+  if (lines.length === 1 && lines[0].includes(',')) {
+    lines = lines[0].split(',').map(l => l.trim()).filter(Boolean);
+  }
+
+  const entries = [];
+
+  for (let rawLine of lines) {
+    let cleanLine = rawLine
+      .replace(/^[\d]+[\.\)\-\s]+\s*/, '')
+      .replace(/^[\*\-\•\–\—]\s*/, '')
+      .trim();
+
+    if (!cleanLine) continue;
+
+    const tokens = cleanLine.split(/\s+/);
+    let amount = 0;
+    let nameTokens = [];
+    let foundAmount = false;
+
+    const firstAmount = parseAmount(tokens[0]);
+    if (firstAmount > 0 && /\d/.test(tokens[0])) {
+      amount = firstAmount;
+      nameTokens = tokens.slice(1);
+      foundAmount = true;
+    } else {
+      const lastToken = tokens[tokens.length - 1];
+      const lastAmount = parseAmount(lastToken);
+      if (lastAmount > 0 && /\d/.test(lastToken)) {
+        amount = lastAmount;
+        nameTokens = tokens.slice(0, -1);
+        foundAmount = true;
+      } else {
+        for (let i = 0; i < tokens.length; i++) {
+          const val = parseAmount(tokens[i]);
+          if (val > 0 && /\d/.test(tokens[i])) {
+            amount = val;
+            nameTokens = tokens.filter((_, idx) => idx !== i);
+            foundAmount = true;
+            break;
+          }
+        }
+      }
+    }
+
+    let name = nameTokens.join(' ').replace(/\//g, ' ').trim();
+    if (foundAmount && amount > 0 && name) {
+      entries.push({ amount, name, originalLine: rawLine });
+    } else if (cleanLine) {
+      entries.push({ amount: 0, name: cleanLine, originalLine: rawLine });
+    }
+  }
+
+  return entries;
+}
+
+export async function handleInteractiveChoice(sock, messageInfo, sessionKey) {
+  const { rawText, fromJid, senderNumber } = messageInfo;
+  const reply = async (text, mentions = []) => {
+    await sock.sendMessage(fromJid, { text, mentions }, { quoted: messageInfo.rawMsg });
+  };
+
+  const session = pendingAmbiguousSessions.get(sessionKey);
+  if (!session) return false;
+
+  if (Date.now() - session.createdAt > 10 * 60 * 1000) {
+    pendingAmbiguousSessions.delete(sessionKey);
+    await reply('⌛ Sesi konfirmasi telah kadaluarsa (lebih dari 10 menit). Silakan ulangi pencatatan kas.');
+    return true;
+  }
+
+  const cleanInput = rawText.replace(/^!bot\s*/i, '').trim().toLowerCase();
+
+  if (cleanInput === 'batal' || cleanInput === 'cancel') {
+    session.queue.shift();
+    if (session.queue.length > 0) {
+      const nextItem = session.queue[0];
+      const candText = nextItem.candidates.map((c, i) => `[${i + 1}] *${c.name}*`).join('\n');
+      await reply(
+        `⏭️ Pilihan sebelumnya dilewati.\n\n` +
+        `⚠️ *KONFIRMASI BERIKUTNYA (${session.queue.length} tersisa):*\n` +
+        `Nama "*${nextItem.inputName}*" (${formatter.formatRupiah(nextItem.amount)}) cocok dengan ${nextItem.candidates.length} mahasiswa:\n` +
+        `${candText}\n\n` +
+        `👉 _Balas angka pilihan (*1* sampai *${nextItem.candidates.length}*), atau ketik *batal*._`
+      );
+    } else {
+      pendingAmbiguousSessions.delete(sessionKey);
+      await reply('❌ Sesi konfirmasi pemilihan nama telah dibatalkan.');
+    }
+    return true;
+  }
+
+  const choice = parseInt(cleanInput, 10);
+  const currentItem = session.queue[0];
+
+  if (!choice || choice < 1 || choice > currentItem.candidates.length) {
+    await reply(`⚠️ Pilihan tidak valid. Silakan balas dengan angka *1* sampai *${currentItem.candidates.length}*, atau ketik *batal*.`);
+    return true;
+  }
+
+  const selectedMember = currentItem.candidates[choice - 1];
+  const activeWeekSetting = await messageService.getSetting('active_semester_week', '1');
+  const targetWeek = parseInt(activeWeekSetting, 10) || 1;
+  const targetYear = new Date().getFullYear();
+
+  await kasService.recordIuranWeekly({
+    member_id: selectedMember.id,
+    week_number: targetWeek,
+    year: targetYear,
+    amount: currentItem.amount,
+    created_by: senderNumber,
+    source: 'bot_wa'
+  });
+
+  session.queue.shift();
+  const summary = await kasService.getSaldoSummary();
+
+  if (session.queue.length > 0) {
+    const nextItem = session.queue[0];
+    const candText = nextItem.candidates.map((c, i) => `[${i + 1}] *${c.name}*`).join('\n');
+    await reply(
+      `✅ Kas untuk *${selectedMember.name}* (${formatter.formatRupiah(currentItem.amount)}) berhasil dicatat!\n\n` +
+      `⚠️ *KONFIRMASI BERIKUTNYA (${session.queue.length} tersisa):*\n` +
+      `Nama "*${nextItem.inputName}*" (${formatter.formatRupiah(nextItem.amount)}) cocok dengan ${nextItem.candidates.length} mahasiswa:\n` +
+      `${candText}\n\n` +
+      `👉 _Balas angka pilihan (*1* sampai *${nextItem.candidates.length}*), atau ketik *batal*._`
+    );
+  } else {
+    pendingAmbiguousSessions.delete(sessionKey);
+    await reply(
+      `✅ *KONFIRMASI SELESAI!*\n\n` +
+      `Kas untuk *${selectedMember.name}* (${formatter.formatRupiah(currentItem.amount)}) berhasil dicatat (Lunas Minggu ke-${targetWeek}).\n` +
+      `💎 Saldo Kas Kini: *${formatter.formatRupiah(summary.saldo)}*`
+    );
+  }
+
+  return true;
 }
 
 export async function handleCommand(sock, messageInfo) {
@@ -176,46 +332,134 @@ export async function handleCommand(sock, messageInfo) {
 `.trim();
         await reply(text);
       } else if (action === 'masuk') {
-        const amountStr = args[3];
-        const nominal = parseAmount(amountStr);
-        if (!nominal || nominal <= 0) {
-          await reply('❌ Masukkan nominal yang valid!\nContoh: `!bot kas masuk 20000 Budi` atau `!bot kas masuk 50k Donasi`');
+        const entries = parseKasEntries(rawText);
+
+        if (entries.length === 0) {
+          await reply(
+            '❌ Format salah!\n\n' +
+            '*Contoh 1 Mahasiswa:*\n`!bot kas masuk 10000 Rouf`\n\n' +
+            '*Contoh Banyak Mahasiswa (Bebas Baris/Poin):*\n' +
+            '!bot kas masuk\n' +
+            '- 10k Rouf\n' +
+            '- 10000 Budi\n' +
+            '- 10k Siti'
+          );
           return;
         }
 
-        const remainingArgs = args.slice(4).join(' ').trim();
-        let member = null;
-        if (remainingArgs) {
-          member = await kasService.findMemberByName(remainingArgs);
+        const activeWeekSetting = await messageService.getSetting('active_semester_week', '1');
+        const targetWeek = parseInt(activeWeekSetting, 10) || 1;
+        const targetYear = new Date().getFullYear();
+
+        const successList = [];
+        const ambiguousList = [];
+        const notFoundList = [];
+        const invalidList = [];
+
+        for (const entry of entries) {
+          if (!entry.amount || entry.amount <= 0) {
+            invalidList.push(entry);
+            continue;
+          }
+
+          const matchResult = await kasService.searchMemberFuzzy(entry.name);
+
+          if (matchResult.status === 'single') {
+            const member = matchResult.matches[0];
+            await kasService.recordIuranWeekly({
+              member_id: member.id,
+              week_number: targetWeek,
+              year: targetYear,
+              amount: entry.amount,
+              created_by: senderNumber,
+              source: 'bot_wa'
+            });
+            successList.push({
+              member,
+              amount: entry.amount,
+              inputName: entry.name,
+              isTypo: matchResult.type === 'fuzzy'
+            });
+          } else if (matchResult.status === 'ambiguous') {
+            ambiguousList.push({
+              amount: entry.amount,
+              inputName: entry.name,
+              candidates: matchResult.matches
+            });
+          } else {
+            notFoundList.push({
+              amount: entry.amount,
+              inputName: entry.name
+            });
+          }
         }
 
-        if (member) {
-          const activeWeekSetting = await messageService.getSetting('active_semester_week', '1');
-          const targetWeek = parseInt(activeWeekSetting, 10) || 1;
-          const targetYear = new Date().getFullYear();
+        const summary = await kasService.getSaldoSummary();
 
-          await kasService.recordIuranWeekly({
-            member_id: member.id,
-            week_number: targetWeek,
-            year: targetYear,
-            amount: nominal,
-            created_by: senderNumber,
-            source: 'bot_wa'
-          });
-          const summary = await kasService.getSaldoSummary();
-          await reply(`✅ *KAS MASUK (IURAN) BERHASIL DICATAT*\n\n👤 Anggota: *${member.name}*\n💵 Jumlah : *${formatter.formatRupiah(nominal)}*\n📅 Periode: Minggu ke-${targetWeek} (${targetYear})\n💎 Saldo Kas Kini: *${formatter.formatRupiah(summary.saldo)}*`);
-        } else {
-          const desc = remainingArgs || 'Pemasukan Kas';
-          await kasService.addTransaction({
-            type: 'masuk',
-            amount: nominal,
-            description: desc,
-            source: 'bot_wa',
-            created_by: senderNumber
-          });
-          const summary = await kasService.getSaldoSummary();
-          await reply(`✅ *KAS MASUK BERHASIL DICATAT*\n\n📝 Ket    : *${desc}*\n💵 Jumlah : *${formatter.formatRupiah(nominal)}*\n💎 Saldo Kas Kini: *${formatter.formatRupiah(summary.saldo)}*`);
+        // 1. Jika hanya 1 entri dan sukses
+        if (entries.length === 1 && successList.length === 1) {
+          const s = successList[0];
+          const typoNote = s.isTypo ? ` _(Otomatis mencocokkan dari '${s.inputName}')_` : '';
+          await reply(
+            `✅ *KAS MASUK (IURAN) BERHASIL DICATAT*\n\n` +
+            `👤 Anggota: *${s.member.name}*${typoNote}\n` +
+            `💵 Jumlah : *${formatter.formatRupiah(s.amount)}*\n` +
+            `📅 Periode: Minggu ke-${targetWeek} (${targetYear})\n` +
+            `💎 Saldo Kas Kini: *${formatter.formatRupiah(summary.saldo)}*`
+          );
+          return;
         }
+
+        // 1b. Jika hanya 1 entri dan tidak ditemukan
+        if (entries.length === 1 && notFoundList.length === 1) {
+          await reply(`❌ Nama "*${notFoundList[0].inputName}*" tidak terdaftar, harap cek ulang atau tambahkan baru di Data Mahasiswa.`);
+          return;
+        }
+
+        // 2. Susun laporan rekap gabungan
+        let report = `💰 *REKAP PENCATATAN KAS MASUK*\n`;
+
+        if (successList.length > 0) {
+          report += `\n✅ *BERHASIL DICATAT (${successList.length}):*\n`;
+          successList.forEach((s, idx) => {
+            const typoNote = s.isTypo ? ` _(dari '${s.inputName}')_` : '';
+            report += `${idx + 1}. *${s.member.name}* (${formatter.formatRupiah(s.amount)}) - Lunas Minggu ${targetWeek}${typoNote}\n`;
+          });
+          report += `💎 Saldo Kas Kini: *${formatter.formatRupiah(summary.saldo)}*\n`;
+        }
+
+        if (notFoundList.length > 0) {
+          report += `\n❌ *TIDAK TERDAFTAR (${notFoundList.length}):*\n`;
+          notFoundList.forEach((nf) => {
+            report += `• Nama "*${nf.inputName}*" (${formatter.formatRupiah(nf.amount)}) tidak terdaftar, harap cek ulang atau tambahkan baru.\n`;
+          });
+        }
+
+        if (invalidList.length > 0) {
+          report += `\n⚠️ *NOMINAL TIDAK VALID (${invalidList.length}):*\n`;
+          invalidList.forEach((inv) => {
+            report += `• "${inv.originalLine}" (Nominal tidak terbaca)\n`;
+          });
+        }
+
+        // 3. Jika ada nama yang ambigu, buka sesi interaktif
+        if (ambiguousList.length > 0) {
+          const sessionKey = `${fromJid}_${senderNumber}`;
+          pendingAmbiguousSessions.set(sessionKey, {
+            queue: ambiguousList,
+            createdAt: Date.now()
+          });
+
+          const firstAmb = ambiguousList[0];
+          let candList = firstAmb.candidates.map((c, i) => `[${i + 1}] *${c.name}*`).join('\n');
+
+          report += `\n⚠️ *KONFIRMASI DIPERLUKAN (1 dari ${ambiguousList.length}):*\n`;
+          report += `Nama "*${firstAmb.inputName}*" (${formatter.formatRupiah(firstAmb.amount)}) cocok dengan ${firstAmb.candidates.length} mahasiswa:\n`;
+          report += `${candList}\n\n`;
+          report += `👉 _Balas chat ini dengan angka pilihan (*1* sampai *${firstAmb.candidates.length}*), atau ketik *batal*._`;
+        }
+
+        await reply(report.trim());
       } else if (action === 'keluar') {
         const amountStr = args[3];
         const nominal = parseAmount(amountStr);

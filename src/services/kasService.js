@@ -84,12 +84,119 @@ export async function deleteMember(id) {
   await query('DELETE FROM members WHERE id = ?', [id]);
 }
 
+export function levenshteinDistance(a, b) {
+  const s1 = (a || '').toLowerCase().trim();
+  const s2 = (b || '').toLowerCase().trim();
+  const an = s1.length;
+  const bn = s2.length;
+  if (an === 0) return bn;
+  if (bn === 0) return an;
+  const matrix = Array.from({ length: bn + 1 }, () => new Array(an + 1));
+  for (let i = 0; i <= an; i++) matrix[0][i] = i;
+  for (let j = 0; j <= bn; j++) matrix[j][0] = j;
+  for (let j = 1; j <= bn; j++) {
+    for (let i = 1; i <= an; i++) {
+      if (s2[j - 1] === s1[i - 1]) {
+        matrix[j][i] = matrix[j - 1][i - 1];
+      } else {
+        matrix[j][i] = Math.min(
+          matrix[j - 1][i] + 1,
+          matrix[j][i - 1] + 1,
+          matrix[j - 1][i - 1] + 1
+        );
+      }
+    }
+  }
+  return matrix[bn][an];
+}
+
+/**
+ * Mencari data mahasiswa dengan sistem cerdas bertingkat:
+ * 1. Exact match (nama persis)
+ * 2. Substring match (potongan nama / kata)
+ * 3. Fuzzy match (toleransi typo huruf)
+ *
+ * Return: { status: 'single' | 'ambiguous' | 'not_found', matches: [Member, ...] }
+ */
+export async function searchMemberFuzzy(keyword) {
+  if (!keyword || !keyword.trim()) {
+    return { status: 'not_found', matches: [] };
+  }
+
+  const queryClean = keyword.toLowerCase().trim();
+  const allMembers = await getMembers(true);
+
+  if (allMembers.length === 0) {
+    return { status: 'not_found', matches: [] };
+  }
+
+  // 1. Exact Match
+  const exactMatches = allMembers.filter(m => m.name.toLowerCase().trim() === queryClean);
+  if (exactMatches.length === 1) {
+    return { status: 'single', matches: exactMatches, type: 'exact' };
+  }
+  if (exactMatches.length > 1) {
+    return { status: 'ambiguous', matches: exactMatches, type: 'exact' };
+  }
+
+  // 2. Substring / Word Match
+  const substringMatches = allMembers.filter(m => {
+    const fullName = m.name.toLowerCase().trim();
+    if (fullName.includes(queryClean)) return true;
+    const words = fullName.split(/\s+/);
+    return words.some(w => w.startsWith(queryClean));
+  });
+
+  if (substringMatches.length === 1) {
+    return { status: 'single', matches: substringMatches, type: 'substring' };
+  }
+  if (substringMatches.length > 1) {
+    return { status: 'ambiguous', matches: substringMatches, type: 'substring' };
+  }
+
+  // 3. Fuzzy Typo Match (Levenshtein Distance)
+  const maxDistance = queryClean.length <= 4 ? 1 : 2;
+  const fuzzyCandidates = [];
+
+  for (const m of allMembers) {
+    const fullName = m.name.toLowerCase().trim();
+    const words = fullName.split(/\s+/);
+    let minWordDist = 999;
+
+    for (const w of words) {
+      const dist = levenshteinDistance(queryClean, w);
+      if (dist < minWordDist) minWordDist = dist;
+    }
+
+    const fullDist = levenshteinDistance(queryClean, fullName);
+    const bestDist = Math.min(minWordDist, fullDist);
+
+    if (bestDist <= maxDistance) {
+      fuzzyCandidates.push({ member: m, dist: bestDist });
+    }
+  }
+
+  if (fuzzyCandidates.length === 0) {
+    return { status: 'not_found', matches: [] };
+  }
+
+  fuzzyCandidates.sort((a, b) => a.dist - b.dist);
+  const bestScore = fuzzyCandidates[0].dist;
+  const topMatches = fuzzyCandidates.filter(c => c.dist === bestScore).map(c => c.member);
+
+  if (topMatches.length === 1) {
+    return { status: 'single', matches: topMatches, type: 'fuzzy' };
+  }
+
+  return { status: 'ambiguous', matches: topMatches, type: 'fuzzy' };
+}
+
 export async function findMemberByName(keyword) {
-  const rows = await query(
-    'SELECT * FROM members WHERE LOWER(name) LIKE ? AND is_active = TRUE LIMIT 1',
-    [`%${keyword.toLowerCase().trim()}%`]
-  );
-  return rows[0] || null;
+  const result = await searchMemberFuzzy(keyword);
+  if (result.status === 'single') {
+    return result.matches[0];
+  }
+  return null;
 }
 
 export async function recordIuranWeekly({ member_id, week_number, year, amount, created_by, source = 'bot_wa' }) {
@@ -171,6 +278,8 @@ export default {
   updateMember,
   deleteMember,
   findMemberByName,
+  searchMemberFuzzy,
+  levenshteinDistance,
   recordIuranWeekly,
   getWeeklyStatus
 };

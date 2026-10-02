@@ -103,9 +103,17 @@
           </tr>
           <tr>
             <td><span class="badge badge-connected">Kas & Iuran</span></td>
-            <td><code>!bot kas masuk &lt;nominal&gt; [nama/ket]</code></td>
-            <td><code>!bot kas masuk 10000 Budi</code><br><code>!bot kas masuk 500k Donasi</code></td>
-            <td>Mencatat uang masuk. Jika nama cocok dengan data mahasiswa, otomatis menandai lunas iuran minggu aktif!</td>
+            <td><code>!bot kas masuk &lt;nominal&gt; [nama]</code><br><small style="color: var(--accent-cyan); font-weight: 600;">✨ Multi-Baris & Fuzzy Typo</small></td>
+            <td><code>!bot kas masuk 10000 rof</code><br><br><code>!bot kas masuk</code><br><code>- 10k Rouf</code><br><code>- 10000 Budi</code><br><code>- 10k Siti</code></td>
+            <td>
+              Mencatat uang kas masuk secara cerdas:
+              <ul style="margin: 6px 0 0 16px; padding: 0; font-size: 0.8rem; color: var(--text-muted); line-height: 1.5;">
+                <li>Bisa catat <strong>banyak nama sekaligus</strong> dengan poin <code>-</code> atau angka <code>1.</code> (urutan nominal & nama bebas).</li>
+                <li><strong>Toleransi Typo:</strong> Potongan nama atau typo ringan (misal <code>rof</code>) otomatis mencocokkan ke <code>Rouf kholik</code>.</li>
+                <li><strong>Sesi Interaktif:</strong> Jika nama ambigu (misal ada 2 nama <code>Siti</code>), bot akan meminta Anda membalas dengan angka pilihan (<code>1</code> atau <code>2</code>).</li>
+                <li><strong>Peringatan Nama Tidak Terdaftar:</strong> Jika nama tidak cocok dengan siapapun, bot akan memberi peringatan.</li>
+              </ul>
+            </td>
           </tr>
           <tr>
             <td><span class="badge badge-connected">Kas & Iuran</span></td>

@@ -8,7 +8,7 @@ import pino from 'pino';
 import path from 'path';
 import fs from 'fs';
 import { isUserAdmin } from './adminHandler.js';
-import { handleCommand } from './commandHandler.js';
+import { handleCommand, hasActiveSession, handleInteractiveChoice } from './commandHandler.js';
 import { getSetting, setSetting } from '../services/messageService.js';
 import { cleanPhoneNumber } from '../utils/formatter.js';
 
@@ -138,11 +138,6 @@ export async function initBaileys() {
             msg.message.imageMessage?.caption ||
             '';
 
-          // Hanya proses pesan yang diawali '!bot'
-          if (!rawText.trim().toLowerCase().startsWith('!bot')) {
-            continue;
-          }
-
           const fromJid = msg.key.remoteJid;
           const isGroup = fromJid.endsWith('@g.us');
           const senderJid = isGroup ? (msg.key.participant || msg.participant) : fromJid;
@@ -157,6 +152,25 @@ export async function initBaileys() {
             senderNumber,
             rawMsg: msg
           };
+
+          const sessionKey = `${fromJid}_${senderNumber}`;
+          const isPending = hasActiveSession(sessionKey);
+          const trimmed = rawText.trim().toLowerCase();
+          const isChoiceInput = /^(?:!bot\s+)?(\d+|batal|cancel)$/i.test(trimmed);
+
+          // Jika ada sesi konfirmasi nama aktif dan admin membalas pilihan (misal: 1, 2, batal)
+          if (isPending && isChoiceInput) {
+            const isAdmin = await isUserAdmin(sock, messageInfo);
+            if (isAdmin) {
+              await handleInteractiveChoice(sock, messageInfo, sessionKey);
+              continue;
+            }
+          }
+
+          // Hanya proses pesan yang diawali '!bot'
+          if (!trimmed.startsWith('!bot')) {
+            continue;
+          }
 
           // Verifikasi hak akses Admin (Admin Grup atau Whitelist)
           const isAdmin = await isUserAdmin(sock, messageInfo);
