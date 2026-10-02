@@ -71,6 +71,7 @@ router.get('/', requireAuth, async (req, res) => {
     const members = await kasService.getMembers(true);
     const weeklyStatus = await kasService.getWeeklyStatus();
     const targetGroup = await messageService.getSetting('target_group_jid');
+    const testGroup = await messageService.getSetting('test_group_jid');
 
     let currentBotState = botState;
     const isBridge = bridgeService.isBridgeMode();
@@ -99,6 +100,7 @@ router.get('/', requireAuth, async (req, res) => {
       totalMembers: members.length,
       weeklyStatus,
       targetGroup,
+      testGroup,
       formatter
     });
   } catch (err) {
@@ -155,9 +157,12 @@ router.post('/api/bridge/send', verifyBridge, async (req, res) => {
 
 router.post('/api/bridge/test-reminder', verifyBridge, async (req, res) => {
   try {
-    const { templateKey } = req.body;
-    const targetGroup = await messageService.getSetting('target_group_jid');
-    if (!targetGroup) {
+    const { templateKey, targetGroupJid } = req.body;
+    let target = targetGroupJid;
+    if (!target) {
+      target = (await messageService.getSetting('test_group_jid')) || (await messageService.getSetting('target_group_jid'));
+    }
+    if (!target) {
       return res.status(400).json({ success: false, message: 'Target group JID belum disetel di server.' });
     }
 
@@ -172,8 +177,8 @@ router.post('/api/bridge/test-reminder', verifyBridge, async (req, res) => {
       note: 'Ini adalah pesan uji coba dari dashboard'
     };
 
-    const text = messageService.buildReminderMessage(template ? template.content : '', sampleSchedule);
-    await sendGroupNotification(targetGroup, text, true);
+    const text = `🧪 *[SIMULASI UJI COBA REMINDER]*\n\n` + messageService.buildReminderMessage(template ? template.content : '', sampleSchedule);
+    await sendGroupNotification(target, text, true);
     res.json({ success: true, message: 'Tes pengingat terkirim ke WhatsApp' });
   } catch (err) {
     res.status(500).json({ success: false, message: err.message });
@@ -423,8 +428,9 @@ router.post('/messages/template/update', requireAuth, async (req, res) => {
 
 router.post('/messages/settings/update', requireAuth, async (req, res) => {
   try {
-    const { target_group_jid, admin_numbers, weekly_dues_amount } = req.body;
+    const { target_group_jid, test_group_jid, admin_numbers, weekly_dues_amount } = req.body;
     if (target_group_jid !== undefined) await messageService.setSetting('target_group_jid', target_group_jid.trim());
+    if (test_group_jid !== undefined) await messageService.setSetting('test_group_jid', test_group_jid.trim());
     if (admin_numbers !== undefined) await messageService.setSetting('admin_numbers', admin_numbers.trim());
     if (weekly_dues_amount !== undefined) await messageService.setSetting('weekly_dues_amount', weekly_dues_amount.trim());
     res.redirect('/messages?status=settings_saved');
@@ -435,11 +441,27 @@ router.post('/messages/settings/update', requireAuth, async (req, res) => {
 
 router.post('/messages/broadcast', requireAuth, async (req, res) => {
   try {
-    const { message_text, mention_all } = req.body;
+    const { message_text, mention_all, target } = req.body;
     const targetGroup = await messageService.getSetting('target_group_jid');
+    const testGroup = await messageService.getSetting('test_group_jid');
 
-    if (!targetGroup) {
-      return res.redirect('/messages?error=' + encodeURIComponent('Grup target WhatsApp belum disetel! Setel di menu pengaturan.'));
+    const targetList = [];
+    if (target === 'test') {
+      if (!testGroup) {
+        return res.redirect('/messages?error=' + encodeURIComponent('Grup testing belum didaftarkan! Gunakan !bot settestgroup di grup testing atau atur di Pengaturan.'));
+      }
+      targetList.push(testGroup);
+    } else if (target === 'all') {
+      if (targetGroup) targetList.push(targetGroup);
+      if (testGroup) targetList.push(testGroup);
+      if (targetList.length === 0) {
+        return res.redirect('/messages?error=' + encodeURIComponent('Belum ada grup yang didaftarkan. Daftarkan grup kelas atau grup testing terlebih dahulu.'));
+      }
+    } else {
+      if (!targetGroup) {
+        return res.redirect('/messages?error=' + encodeURIComponent('Grup target WhatsApp utama belum disetel! Ketik !bot setgroup di grup atau atur di Pengaturan.'));
+      }
+      targetList.push(targetGroup);
     }
 
     if (!message_text || !message_text.trim()) {
@@ -449,15 +471,19 @@ router.post('/messages/broadcast', requireAuth, async (req, res) => {
     const shouldMention = mention_all === '1' || mention_all === 'on';
 
     if (bridgeService.isBridgeMode()) {
-      await bridgeService.callRemoteBot('/api/bridge/send', 'POST', {
-        targetGroupJid: targetGroup,
-        messageText: message_text.trim(),
-        mentionAll: shouldMention
-      });
+      for (const jid of targetList) {
+        await bridgeService.callRemoteBot('/api/bridge/send', 'POST', {
+          targetGroupJid: jid,
+          messageText: message_text.trim(),
+          mentionAll: shouldMention
+        });
+      }
       return res.redirect('/messages?status=broadcast_sent');
     }
 
-    await sendGroupNotification(targetGroup, message_text.trim(), shouldMention);
+    for (const jid of targetList) {
+      await sendGroupNotification(jid, message_text.trim(), shouldMention);
+    }
     res.redirect('/messages?status=broadcast_sent');
   } catch (err) {
     res.redirect('/messages?error=' + encodeURIComponent(err.message));
@@ -466,16 +492,24 @@ router.post('/messages/broadcast', requireAuth, async (req, res) => {
 
 router.post('/messages/test-reminder', requireAuth, async (req, res) => {
   try {
-    const { template_key } = req.body;
+    const { template_key, target } = req.body;
+    const targetGroup = await messageService.getSetting('target_group_jid');
+    const testGroup = await messageService.getSetting('test_group_jid');
+
+    let destJid = target === 'main' ? targetGroup : (testGroup || targetGroup);
+
+    if (!destJid) {
+      return res.redirect('/messages?error=' + encodeURIComponent('Belum ada grup yang disetel! Daftarkan grup testing dengan !bot settestgroup atau grup utama dengan !bot setgroup.'));
+    }
+
     if (bridgeService.isBridgeMode()) {
-      await bridgeService.callRemoteBot('/api/bridge/test-reminder', 'POST', { templateKey: template_key });
+      await bridgeService.callRemoteBot('/api/bridge/test-reminder', 'POST', {
+        templateKey: template_key,
+        targetGroupJid: destJid
+      });
       return res.redirect('/messages?status=test_sent');
     }
 
-    const targetGroup = await messageService.getSetting('target_group_jid');
-    if (!targetGroup) {
-      return res.redirect('/messages?error=' + encodeURIComponent('Grup target WhatsApp belum disetel!'));
-    }
     const template = await messageService.getTemplate(template_key);
     const schedules = await jadwalService.getAllSchedules(true);
     const sampleSchedule = schedules[0] || {
@@ -486,8 +520,8 @@ router.post('/messages/test-reminder', requireAuth, async (req, res) => {
       lecturer: 'Dosen Contoh, M.Kom',
       note: 'Ini adalah pesan uji coba dari dashboard'
     };
-    const text = messageService.buildReminderMessage(template ? template.content : '', sampleSchedule);
-    await sendGroupNotification(targetGroup, text, true);
+    const text = `🧪 *[SIMULASI UJI COBA REMINDER]*\n\n` + messageService.buildReminderMessage(template ? template.content : '', sampleSchedule);
+    await sendGroupNotification(destJid, text, true);
     res.redirect('/messages?status=test_sent');
   } catch (err) {
     res.redirect('/messages?error=' + encodeURIComponent(err.message));

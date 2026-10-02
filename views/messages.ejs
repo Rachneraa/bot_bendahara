@@ -25,6 +25,15 @@
 
     <form action="/messages/broadcast" method="POST">
       <div class="form-group">
+        <label for="broadcastTarget">Tujuan Pengiriman</label>
+        <select id="broadcastTarget" name="target" style="background: rgba(0,0,0,0.3); border: 1px solid var(--border-color); color: #fff; padding: 10px 14px; border-radius: var(--radius-sm); width: 100%;">
+          <option value="main">👑 Grup Kelas Utama (<%= settings.target_group_jid ? 'Terhubung' : 'Belum diatur' %>)</option>
+          <option value="test">🧪 Grup Testing / Uji Coba (<%= settings.test_group_jid ? 'Terhubung' : 'Belum diatur' %>)</option>
+          <option value="all">🚀 Keduanya (Grup Utama & Grup Testing)</option>
+        </select>
+      </div>
+
+      <div class="form-group">
         <label for="broadcastText">Isi Pengumuman / Pesan</label>
         <textarea id="broadcastText" name="message_text" rows="5" placeholder="Tuliskan isi pengumuman kelas di sini..." required></textarea>
       </div>
@@ -33,7 +42,7 @@
         <input type="checkbox" id="mentionAll" name="mention_all" value="1" checked style="width: auto;">
         <label for="mentionAll" style="margin: 0; cursor: pointer; color: #fff;">
           <strong>Tag Seluruh Anggota Grup (@everyone)</strong><br>
-          <span style="font-size: 0.78rem; color: var(--text-muted);">Semua anggota dalam grup akan menerima notifikasi tag.</span>
+          <span style="font-size: 0.78rem; color: var(--text-muted);">Semua anggota dalam grup target akan menerima notifikasi tag.</span>
         </label>
       </div>
 
@@ -51,15 +60,23 @@
       </h3>
     </div>
     <p style="font-size: 0.85rem; color: var(--text-muted); margin-bottom: 20px;">
-      Konfigurasi grup target tempat pengingat otomatis dikirimkan.
+      Konfigurasi grup WhatsApp kelas utama dan grup testing untuk uji coba.
     </p>
 
     <form action="/messages/settings/update" method="POST">
       <div class="form-group">
-        <label for="targetGroup">ID Grup WhatsApp Target (JID)</label>
+        <label for="targetGroup">ID Grup WhatsApp Utama (JID)</label>
         <input type="text" id="targetGroup" name="target_group_jid" value="<%= settings.target_group_jid || '' %>" placeholder="Contoh: 120363012345678901@g.us">
         <small style="color: var(--text-dim); margin-top: 4px;">
-          Tip: Anda juga bisa mengetikkan <code>!bot setgroup</code> langsung di grup WA untuk mengisi kolom ini secara otomatis.
+          Tip: Ketik <code>!bot setgroup</code> di grup utama untuk otomatis menyimpan.
+        </small>
+      </div>
+
+      <div class="form-group">
+        <label for="testGroup">ID Grup WhatsApp Testing (JID)</label>
+        <input type="text" id="testGroup" name="test_group_jid" value="<%= settings.test_group_jid || '' %>" placeholder="Contoh: 120363098765432100@g.us">
+        <small style="color: var(--text-dim); margin-top: 4px;">
+          Tip: Ketik <code>!bot settestgroup</code> di grup testing untuk otomatis menyimpan.
         </small>
       </div>
 
@@ -111,9 +128,15 @@
         <% if (t.key_name !== 'broadcast_default') { %>
           <form action="/messages/test-reminder" method="POST" style="margin-top: 8px;">
             <input type="hidden" name="template_key" value="<%= t.key_name %>">
-            <button type="submit" class="btn btn-secondary btn-sm" style="width: 100%; border: 1px dashed var(--accent-cyan); color: var(--accent-cyan);" title="Kirim simulasi pesan ini ke grup WA untuk memastikan formatnya sesuai">
-              🧪 Tes Kirim Pengingat Ini ke Grup
-            </button>
+            <div style="display: flex; gap: 8px;">
+              <select name="target" style="padding: 6px 10px; font-size: 0.8rem; background: rgba(0,0,0,0.3); border: 1px solid var(--border-color); color: #fff; border-radius: var(--radius-sm); flex: 1;">
+                <option value="test">🧪 Ke Grup Testing</option>
+                <option value="main">👑 Ke Grup Utama</option>
+              </select>
+              <button type="submit" class="btn btn-secondary btn-sm" style="border: 1px dashed var(--accent-cyan); color: var(--accent-cyan); white-space: nowrap;" title="Kirim simulasi pesan ini ke grup WA untuk memastikan formatnya sesuai">
+                🧪 Tes Kirim
+              </button>
+            </div>
           </form>
         <% } %>
       </div>

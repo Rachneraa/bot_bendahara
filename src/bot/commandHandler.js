@@ -30,7 +30,9 @@ export async function handleCommand(sock, messageInfo) {
 🤖 *PANDUAN PERINTAH BOT BENDAHARA & KELAS*
 
 *👑 PENGATURAN GRUP*
-• \`!bot setgroup\` : Daftarkan grup ini untuk pengingat kelas otomatis.
+• \`!bot setgroup\` : Daftarkan grup ini sebagai Grup Kelas Utama (pengingat otomatis).
+• \`!bot settestgroup\` : Daftarkan grup ini sebagai Grup Testing (uji coba fitur).
+• \`!bot test reminder\` : Kirim simulasi pengingat kuliah ke grup testing.
 
 *💰 KAS & IURAN*
 • \`!bot kas saldo\` : Lihat total saldo kas & ringkasan.
@@ -63,7 +65,66 @@ export async function handleCommand(sock, messageInfo) {
         return;
       }
       await messageService.setSetting('target_group_jid', groupJid);
-      await reply(`✅ Berhasil! Grup ini telah didaftarkan sebagai tujuan pengingat kelas otomatis.\n\nID Grup: \`${groupJid}\``);
+      await reply(`✅ Berhasil! Grup ini didaftarkan sebagai *Grup Kelas Utama* untuk pengingat otomatis.\n\nID Grup: \`${groupJid}\``);
+      break;
+    }
+
+    case 'settestgroup': {
+      if (!isGroup) {
+        await reply('❌ Perintah ini hanya bisa dijalankan di dalam grup WhatsApp.');
+        return;
+      }
+      await messageService.setSetting('test_group_jid', groupJid);
+      await reply(`🧪 Berhasil! Grup ini didaftarkan sebagai *Grup Testing / Uji Coba*.\n\nAnda dapat menguji fitur bot di sini tanpa mengganggu grup utama. Untuk simulasi pengingat jadwal, ketik:\n\`!bot test reminder\`\n\nID Grup Testing: \`${groupJid}\``);
+      break;
+    }
+
+    case 'test': {
+      const testAction = (args[2] || '').toLowerCase();
+      if (testAction === 'reminder') {
+        const testGroupJid = await messageService.getSetting('test_group_jid');
+        const targetJid = isGroup ? groupJid : (testGroupJid || null);
+
+        if (!targetJid) {
+          await reply('❌ Grup testing belum didaftarkan. Jalankan perintah ini di dalam grup testing atau daftarkan dengan `!bot settestgroup`.');
+          return;
+        }
+
+        const todaySchedules = await jadwalService.getTodaySchedules();
+        let sampleSchedule = todaySchedules[0];
+        if (!sampleSchedule) {
+          const allSchedules = await jadwalService.getAllSchedules();
+          sampleSchedule = allSchedules[0] || {
+            course_name: 'Simulasi Algoritma & Pemrograman',
+            lecturer: 'Dosen Pembimbing, M.Kom',
+            start_time: '08:00:00',
+            end_time: '10:30:00',
+            note: 'Ruang Lab Komputer / Simulasi',
+            day_of_week: 'senin'
+          };
+        }
+
+        const template = await messageService.getTemplate('reminder_5h') || {
+          content: '⏳ [PENGINGAT KULIAH H-5 JAM]\n\n📚 Mata Kuliah: *{matkul}*\n👨‍🏫 Dosen: *{dosen}*\n⏰ Jam: *{jam}*\n📝 Ruangan / Catatan: *{note}*\n\n_Pengingat ini otomatis dari Bot Kelas._'
+        };
+
+        let mentions = [];
+        try {
+          const metadata = await sock.groupMetadata(targetJid);
+          mentions = metadata.participants.map(p => p.id);
+        } catch (e) {
+          // metadata error ignored
+        }
+
+        const msgContent = `🧪 *[SIMULASI UJI COBA REMINDER]*\n\n` + messageService.buildReminderMessage(template.content, sampleSchedule);
+        await sock.sendMessage(targetJid, { text: msgContent, mentions });
+
+        if (!isGroup || targetJid !== groupJid) {
+          await reply(`✅ Simulasi pengingat kuliah berhasil dikirim ke grup testing (\`${targetJid}\`).`);
+        }
+      } else {
+        await reply('ℹ️ Format uji coba tersedia:\n• `!bot test reminder` : Kirim simulasi pengingat kuliah ke grup testing.');
+      }
       break;
     }
 

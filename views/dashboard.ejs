@@ -30,6 +30,15 @@
             Silakan masukkan nomor telepon bot di bawah untuk mendapatkan kode pairing 8 digit.
           <% } %>
         </p>
+
+        <div style="display: flex; gap: 10px; flex-wrap: wrap; margin-top: 10px;">
+          <span style="font-size: 0.76rem; background: rgba(255,255,255,0.06); padding: 4px 10px; border-radius: var(--radius-sm); border: 1px solid var(--border-color); color: var(--text-main);">
+            👑 <strong>Grup Utama:</strong> <%= targetGroup || 'Belum diatur (!bot setgroup)' %>
+          </span>
+          <span style="font-size: 0.76rem; background: rgba(99, 102, 241, 0.12); padding: 4px 10px; border-radius: var(--radius-sm); border: 1px solid rgba(99, 102, 241, 0.3); color: #c7d2fe;">
+            🧪 <strong>Grup Testing:</strong> <%= testGroup || 'Belum diatur (!bot settestgroup)' %>
+          </span>
+        </div>
       </div>
     </div>
 
