@@ -89,7 +89,13 @@
             <td>
               <strong style="color: #fff;"><%= m.name %></strong>
             </td>
-            <td><%= m.phone_number ? m.phone_number : '<span style="color: var(--text-dim);">-</span>' %></td>
+            <td>
+              <% if (m.phone_number) { %>
+                <%= m.phone_number %>
+              <% } else { %>
+                <span style="color: var(--text-dim);">-</span>
+              <% } %>
+            </td>
             <td>
               <% if (m.is_active) { %>
                 <span class="badge badge-connected">Aktif</span>

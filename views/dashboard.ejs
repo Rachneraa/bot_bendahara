@@ -142,7 +142,13 @@
               <td><strong><%= formatter.formatTime(s.start_time) %> - <%= formatter.formatTime(s.end_time) %></strong></td>
               <td><span style="font-weight: 600; color: #fff;"><%= s.course_name %></span></td>
               <td><%= s.lecturer %></td>
-              <td><%= s.note || '<span style="color: var(--text-dim);">-</span>' %></td>
+              <td>
+                <% if (s.note) { %>
+                  <%= s.note %>
+                <% } else { %>
+                  <span style="color: var(--text-dim);">-</span>
+                <% } %>
+              </td>
               <td>
                 <span class="badge badge-connected">Otomatis (H-5 & H-0)</span>
               </td>
