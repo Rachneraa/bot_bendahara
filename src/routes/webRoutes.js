@@ -17,6 +17,16 @@ export function requireAuth(req, res, next) {
   return res.redirect('/login');
 }
 
+// Endpoint Health Check (untuk keep-alive cron & monitoring)
+router.get('/api/health', (req, res) => {
+  res.json({
+    status: 'ok',
+    botStatus: botState.status,
+    botNumber: botState.botNumber,
+    timestamp: new Date().toISOString()
+  });
+});
+
 // -------------------------------------------------------------
 // 1. AUTENTIKASI (LOGIN & LOGOUT)
 // -------------------------------------------------------------
