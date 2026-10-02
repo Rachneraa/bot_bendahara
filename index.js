@@ -1,6 +1,7 @@
 import express from 'express';
 import session from 'express-session';
 import path from 'path';
+// Reload env trigger
 import dotenv from 'dotenv';
 import { fileURLToPath } from 'url';
 

@@ -1,0 +1,217 @@
+<%- include('layout/header', { pageTitle: 'Panduan Penggunaan Bot', pageDesc: 'Petunjuk lengkap operasional bot WhatsApp bendahara, pengingat kelas, dan dashboard' }) %>
+
+<div style="display: flex; flex-direction: column; gap: 28px;">
+
+  <!-- Step 1: Pendaftaran Bot ke Grup -->
+  <div class="glass-card" style="border-left: 4px solid var(--accent-primary);">
+    <div class="card-header">
+      <h3 class="card-title">
+        <span>🚀</span> Langkah Menghubungkan Bot ke Grup Kelas
+      </h3>
+      <span class="badge badge-connected">Sangat Mudah</span>
+    </div>
+    <p style="font-size: 0.9rem; color: var(--text-muted); margin-bottom: 20px;">
+      Ikuti 3 langkah berikut untuk mengaktifkan notifikasi kelas dan pencatatan kas di grup WhatsApp kelas Anda:
+    </p>
+
+    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 16px;">
+      <div style="background: rgba(0, 0, 0, 0.3); border: 1px solid var(--border-color); border-radius: var(--radius-md); padding: 18px;">
+        <div style="font-size: 1.5rem; margin-bottom: 8px;">1️⃣</div>
+        <h4 style="color: #fff; font-size: 1rem; margin-bottom: 6px;">Masukkan Bot ke Grup</h4>
+        <p style="font-size: 0.82rem; color: var(--text-dim); line-height: 1.5;">
+          Buka WhatsApp di HP Anda, buka grup kelas, lalu tambahkan nomor akun WhatsApp bot Anda sebagai anggota grup.
+        </p>
+      </div>
+
+      <div style="background: rgba(0, 0, 0, 0.3); border: 1px solid var(--border-color); border-radius: var(--radius-md); padding: 18px;">
+        <div style="font-size: 1.5rem; margin-bottom: 8px;">2️⃣</div>
+        <h4 style="color: #fff; font-size: 1rem; margin-bottom: 6px;">Jadikan Admin Grup</h4>
+        <p style="font-size: 0.82rem; color: var(--text-dim); line-height: 1.5;">
+          Jadikan akun bot sebagai <strong>Admin Grup</strong> agar bot diizinkan oleh WhatsApp untuk mengambil daftar anggota dan melakukan tag <code>@everyone</code>.
+        </p>
+      </div>
+
+      <div style="background: rgba(0, 0, 0, 0.3); border: 1px solid var(--border-color); border-radius: var(--radius-md); padding: 18px;">
+        <div style="font-size: 1.5rem; margin-bottom: 8px;">3️⃣</div>
+        <h4 style="color: #fff; font-size: 1rem; margin-bottom: 6px;">Ketik !bot setgroup</h4>
+        <p style="font-size: 0.82rem; color: var(--text-dim); line-height: 1.5;">
+          Kirim chat teks <code>!bot setgroup</code> di dalam grup tersebut. Bot akan membalas konfirmasi dan ID grup otomatis tersimpan di sistem!
+        </p>
+      </div>
+    </div>
+  </div>
+
+  <!-- Step 2: Daftar Perintah WhatsApp Lengkap -->
+  <div class="glass-card">
+    <div class="card-header">
+      <h3 class="card-title">
+        <span>🤖</span> Daftar Lengkap Perintah Bot WhatsApp (<code>!bot</code>)
+      </h3>
+      <span class="badge" style="background: rgba(99, 102, 241, 0.2); color: #a5b4fc;">Khusus Admin</span>
+    </div>
+    <p style="font-size: 0.85rem; color: var(--text-muted); margin-bottom: 16px;">
+      Seluruh perintah di bawah hanya dapat dieksekusi oleh <strong>Admin Grup WhatsApp</strong> atau nomor yang terdaftar di whitelist admin:
+    </p>
+
+    <div class="table-responsive">
+      <table>
+        <thead>
+          <tr>
+            <th>Kategori</th>
+            <th>Perintah</th>
+            <th>Contoh Penggunaan</th>
+            <th>Fungsi & Keterangan</th>
+          </tr>
+        </thead>
+        <tbody>
+          <!-- Menu & Group -->
+          <tr>
+            <td><span class="badge" style="background: rgba(6, 182, 212, 0.15); color: #22d3ee;">Umum</span></td>
+            <td><code>!bot</code> atau <code>!bot menu</code></td>
+            <td><code>!bot menu</code></td>
+            <td>Menampilkan pesan panduan seluruh perintah bot di WhatsApp.</td>
+          </tr>
+          <tr>
+            <td><span class="badge" style="background: rgba(6, 182, 212, 0.15); color: #22d3ee;">Umum</span></td>
+            <td><code>!bot setgroup</code></td>
+            <td><code>!bot setgroup</code></td>
+            <td>Mendaftarkan grup tempat chat dikirimkan sebagai tujuan pengingat kelas otomatis.</td>
+          </tr>
+
+          <!-- Kas & Iuran -->
+          <tr>
+            <td><span class="badge badge-connected">Kas & Iuran</span></td>
+            <td><code>!bot kas saldo</code></td>
+            <td><code>!bot kas saldo</code></td>
+            <td>Melihat total saldo kas kelas saat ini, total pemasukan, dan total pengeluaran.</td>
+          </tr>
+          <tr>
+            <td><span class="badge badge-connected">Kas & Iuran</span></td>
+            <td><code>!bot kas masuk &lt;nominal&gt; [nama/ket]</code></td>
+            <td><code>!bot kas masuk 10000 Budi</code><br><code>!bot kas masuk 500k Donasi</code></td>
+            <td>Mencatat uang masuk. Jika nama cocok dengan data mahasiswa, otomatis menandai lunas iuran minggu aktif!</td>
+          </tr>
+          <tr>
+            <td><span class="badge badge-connected">Kas & Iuran</span></td>
+            <td><code>!bot kas keluar &lt;nominal&gt; &lt;keterangan&gt;</code></td>
+            <td><code>!bot kas keluar 25000 Beli spidol</code></td>
+            <td>Mencatat pengeluaran kas kelas beserta keterangannya.</td>
+          </tr>
+          <tr>
+            <td><span class="badge badge-connected">Kas & Iuran</span></td>
+            <td><code>!bot kas mutasi</code></td>
+            <td><code>!bot kas mutasi</code></td>
+            <td>Melihat 10 riwayat transaksi kas terakhir (masuk dan keluar).</td>
+          </tr>
+          <tr>
+            <td><span class="badge badge-connected">Kas & Iuran</span></td>
+            <td><code>!bot kas status [minggu]</code></td>
+            <td><code>!bot kas status</code><br><code>!bot kas status 2</code></td>
+            <td>Melihat rekap siapa saja yang sudah lunas dan siapa yang belum bayar iuran pada minggu tertentu.</td>
+          </tr>
+
+          <!-- Anggota -->
+          <tr>
+            <td><span class="badge" style="background: rgba(245, 158, 11, 0.15); color: #fbbf24;">Mahasiswa</span></td>
+            <td><code>!bot member list</code></td>
+            <td><code>!bot member list</code></td>
+            <td>Menampilkan daftar seluruh mahasiswa kelas yang terdaftar di database.</td>
+          </tr>
+          <tr>
+            <td><span class="badge" style="background: rgba(245, 158, 11, 0.15); color: #fbbf24;">Mahasiswa</span></td>
+            <td><code>!bot member tambah &lt;nama&gt;</code></td>
+            <td><code>!bot member tambah Ahmad Dani</code></td>
+            <td>Menambahkan mahasiswa baru ke daftar kelas secara cepat lewat WhatsApp.</td>
+          </tr>
+
+          <!-- Jadwal -->
+          <tr>
+            <td><span class="badge" style="background: rgba(139, 92, 246, 0.15); color: #c084fc;">Jadwal</span></td>
+            <td><code>!bot jadwal</code></td>
+            <td><code>!bot jadwal</code></td>
+            <td>Menampilkan jadwal perkuliahan hari ini serta daftar seluruh jadwal mingguan.</td>
+          </tr>
+          <tr>
+            <td><span class="badge" style="background: rgba(139, 92, 246, 0.15); color: #c084fc;">Jadwal</span></td>
+            <td><code>!bot jadwal tambah &lt;format&gt;</code></td>
+            <td><code>!bot jadwal tambah senin|08:00-10:00|Kalkulus|Pak Budi|Ruang 301</code></td>
+            <td>Menambah jadwal kuliah baru lewat chat WA (Format: hari|jam|matkul|dosen|note).</td>
+          </tr>
+          <tr>
+            <td><span class="badge" style="background: rgba(139, 92, 246, 0.15); color: #c084fc;">Jadwal</span></td>
+            <td><code>!bot jadwal hapus &lt;id&gt;</code></td>
+            <td><code>!bot jadwal hapus 3</code></td>
+            <td>Menghapus jadwal kuliah berdasarkan ID.</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- Step 3: Cara Kerja Pengingat Kelas Otomatis -->
+  <div class="glass-card">
+    <div class="card-header">
+      <h3 class="card-title">
+        <span>⏰</span> Cara Kerja Pengingat Kelas Otomatis
+      </h3>
+    </div>
+    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 20px;">
+      <div style="background: rgba(0, 0, 0, 0.25); padding: 20px; border-radius: var(--radius-md); border: 1px solid var(--border-color);">
+        <h4 style="color: var(--accent-amber); font-size: 1.05rem; margin-bottom: 8px;">⏳ Pengingat 5 Jam Sebelum Kelas (H-5 Jam)</h4>
+        <p style="font-size: 0.85rem; color: var(--text-muted); line-height: 1.6;">
+          Sistem scheduler memeriksa jadwal setiap menit. Tepat 5 jam sebelum jam masuk kuliah, bot akan otomatis mengirim pengingat ke grup WhatsApp kelas dengan mention seluruh anggota agar mempersiapkan materi dan tugas kuliah.
+        </p>
+      </div>
+
+      <div style="background: rgba(0, 0, 0, 0.25); padding: 20px; border-radius: var(--radius-md); border: 1px solid var(--border-color);">
+        <h4 style="color: var(--accent-rose); font-size: 1.05rem; margin-bottom: 8px;">🚨 Pengingat Saat Kelas Dimulai (H-0)</h4>
+        <p style="font-size: 0.85rem; color: var(--text-muted); line-height: 1.6;">
+          Tepat saat jam perkuliahan dimulai, bot akan mengirimkan notifikasi tanda kelas segera masuk lengkap dengan catatan ruangan kelas atau tautan meeting online.
+        </p>
+      </div>
+    </div>
+
+    <div style="margin-top: 20px; padding: 16px; background: rgba(99, 102, 241, 0.08); border: 1px solid rgba(99, 102, 241, 0.25); border-radius: var(--radius-md);">
+      <h5 style="color: #fff; font-size: 0.92rem; margin-bottom: 6px;">💡 Tag Variabel Template yang Tersedia:</h5>
+      <p style="font-size: 0.82rem; color: var(--text-muted); line-height: 1.6;">
+        Anda dapat mengubah gaya tulisan notifikasi di menu <strong>💬 Pesan & Siaran</strong> menggunakan variabel berikut:<br>
+        <code>{matkul}</code> (Nama Mata Kuliah) • <code>{dosen}</code> (Nama Dosen) • <code>{jam}</code> (Jam Mulai - Selesai) • <code>{note}</code> (Catatan / Ruangan) • <code>{hari}</code> (Hari Kuliah).
+      </p>
+    </div>
+  </div>
+
+  <!-- Step 4: FAQ & Pertanyaan Umum -->
+  <div class="glass-card">
+    <div class="card-header">
+      <h3 class="card-title">
+        <span>❓</span> Pertanyaan yang Sering Diajukan (FAQ)
+      </h3>
+    </div>
+    
+    <div style="display: flex; flex-direction: column; gap: 14px;">
+      <div>
+        <h4 style="color: #fff; font-size: 0.95rem; margin-bottom: 4px;">Q: Mengapa bot tidak membalas saat anggota biasa mengirim <code>!bot</code>?</h4>
+        <p style="font-size: 0.85rem; color: var(--text-muted);">
+          A: Bot dilengkapi sistem keamanan <em>silent ignore</em>. Hanya admin grup WhatsApp atau nomor yang didaftarkan di whitelist admin yang dapat memberi perintah ke bot. Ini sengaja dirancang agar obrolan grup kelas tidak menjadi ajang spam oleh anggota.
+        </p>
+      </div>
+
+      <div style="border-top: 1px solid var(--border-color); padding-top: 12px;">
+        <h4 style="color: #fff; font-size: 0.95rem; margin-bottom: 4px;">Q: Bagaimana jika saya ingin mengganti nomor WhatsApp bot?</h4>
+        <p style="font-size: 0.85rem; color: var(--text-muted);">
+          A: Buka terminal cPanel, hapus folder <code>auth_info</code> dengan perintah <code>rm -rf auth_info</code>, lalu restart aplikasi Node.js di cPanel. Buka dashboard web untuk memasukkan nomor baru dan menyalin 8-digit Pairing Code yang baru.
+        </p>
+      </div>
+
+      <div style="border-top: 1px solid var(--border-color); padding-top: 12px;">
+        <h4 style="color: #fff; font-size: 0.95rem; margin-bottom: 4px;">Q: Bagaimana cara mengatur minggu perkuliahan (Minggu 1 - 16)?</h4>
+        <p style="font-size: 0.85rem; color: var(--text-muted);">
+          A: Buka menu <strong>👥 Data Mahasiswa</strong>, pilih minggu yang diinginkan pada dropdown (misal Minggu ke-2), lalu klik tombol <strong>⭐ Set Jadi Minggu Aktif</strong>. Bot WhatsApp otomatis akan mencatat iuran sesuai minggu tersebut.
+        </p>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<%- include('layout/footer') %>

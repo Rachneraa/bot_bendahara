@@ -539,4 +539,13 @@ router.post('/kas/add', requireAuth, async (req, res) => {
   }
 });
 
+// -------------------------------------------------------------
+// PANDUAN PENGGUNAAN (GUIDE)
+// -------------------------------------------------------------
+router.get('/guide', requireAuth, (req, res) => {
+  res.render('guide', {
+    user: req.session.user
+  });
+});
+
 export default router;
