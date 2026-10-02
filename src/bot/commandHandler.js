@@ -142,13 +142,19 @@ export async function handleCommand(sock, messageInfo) {
         });
         await reply(listText.trim());
       } else if (action === 'tambah') {
-        const name = args.slice(3).join(' ');
-        if (!name) {
-          await reply('❌ Format salah! Gunakan: `!bot member tambah <nama>`');
+        const raw = args.slice(3).join(' ');
+        if (!raw) {
+          await reply('❌ Format salah! Gunakan: `!bot member tambah <nama>` atau pisahkan koma untuk banyak nama');
           return;
         }
-        const newId = await kasService.addMember({ name });
-        await reply(`✅ Anggota berhasil ditambahkan!\nID: *${newId}*\nNama: *${name}*`);
+        const names = raw.split(',').map(n => n.trim()).filter(Boolean);
+        if (names.length === 1) {
+          const newId = await kasService.addMember({ name: names[0] });
+          await reply(`✅ Anggota berhasil ditambahkan!\nID: *${newId}*\nNama: *${names[0]}*`);
+        } else {
+          const count = await kasService.addBulkMembers(names.map(n => ({ name: n })));
+          await reply(`✅ Berhasil menambahkan *${count} mahasiswa* sekaligus ke kelas!`);
+        }
       } else {
         await reply('❌ Format salah! Pilihan: `!bot member list` atau `!bot member tambah <nama>`');
       }

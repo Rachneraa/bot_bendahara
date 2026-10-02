@@ -59,6 +59,20 @@ export async function addMember({ name, phone_number = null }) {
   return result.insertId;
 }
 
+export async function addBulkMembers(memberList) {
+  if (!memberList || memberList.length === 0) return 0;
+  let count = 0;
+  for (const m of memberList) {
+    if (!m.name || !m.name.trim()) continue;
+    await query(
+      'INSERT INTO members (name, phone_number, is_active) VALUES (?, ?, TRUE)',
+      [m.name.trim(), m.phone_number ? m.phone_number.trim() : null]
+    );
+    count++;
+  }
+  return count;
+}
+
 export async function updateMember(id, { name, phone_number, is_active }) {
   await query(
     'UPDATE members SET name = ?, phone_number = ?, is_active = ? WHERE id = ?',
@@ -153,6 +167,7 @@ export default {
   addTransaction,
   getMembers,
   addMember,
+  addBulkMembers,
   updateMember,
   deleteMember,
   findMemberByName,

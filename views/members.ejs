@@ -1,5 +1,11 @@
 <%- include('layout/header', { pageTitle: 'Data Mahasiswa & Iuran', pageDesc: 'Kelola data seluruh anggota kelas dan pantau pelunasan kas mingguan' }) %>
 
+<% if (typeof bulkStatus !== 'undefined' && bulkStatus === 'bulk_added') { %>
+  <div class="alert alert-success" style="margin-bottom: 20px;">
+    🎉 Berhasil menambahkan <strong><%= bulkCount %> mahasiswa</strong> sekaligus ke database kelas!
+  </div>
+<% } %>
+
 <!-- Toolbar Pemilih Minggu Semester -->
 <div class="glass-card" style="padding: 16px 22px; margin-bottom: 20px;">
   <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 14px;">
@@ -42,9 +48,14 @@
       Total: <%= weeklyStatus.totalMembers %> mahasiswa aktif
     </p>
   </div>
-  <button onclick="openModal('modalAddMember')" class="btn btn-primary">
-    ➕ Tambah Mahasiswa
-  </button>
+  <div style="display: flex; gap: 10px; flex-wrap: wrap;">
+    <button onclick="openModal('modalBulkAddMember')" class="btn btn-secondary" style="border: 1px solid var(--accent-primary); color: #c7d2fe;">
+      📋 Tambah Massal (Banyak Sekaligus)
+    </button>
+    <button onclick="openModal('modalAddMember')" class="btn btn-primary">
+      ➕ Tambah Satuan
+    </button>
+  </div>
 </div>
 
 <!-- Tabel Mahasiswa -->
@@ -128,6 +139,42 @@
         <% }) %>
       </tbody>
     </table>
+  </div>
+</div>
+
+<!-- Modal Tambah Massal (Bulk Add) -->
+<div class="modal-overlay" id="modalBulkAddMember">
+  <div class="modal-content" style="max-width: 600px;">
+    <div class="card-header">
+      <h3 class="card-title">📋 Tambah Banyak Mahasiswa Sekaligus</h3>
+      <button onclick="closeModal('modalBulkAddMember')" style="background: none; border: none; color: var(--text-muted); cursor: pointer; font-size: 1.2rem;">✕</button>
+    </div>
+    <form action="/members/add-bulk" method="POST">
+      <p style="font-size: 0.85rem; color: var(--text-muted); margin-bottom: 12px; line-height: 1.5;">
+        Salin dan tempel daftar nama mahasiswa di bawah (misal dari <strong>Excel, Word, atau chat WhatsApp</strong>).<br>
+        Sistem otomatis membersihkan nomor baris (seperti <code>1. </code>, <code>2. </code>) atau simbol strip.
+      </p>
+
+      <div class="form-group">
+        <label for="bulkData">Daftar Nama (1 Nama per Baris)</label>
+        <textarea id="bulkData" name="bulk_data" rows="12" style="font-family: inherit; font-size: 0.88rem;" placeholder="Contoh format:
+Ahmad Dahlan
+Budi Santoso
+Citra Lestari
+Dewi Anggraini, 081234567890
+Eko Prasetyo
+... (Bisa langsung paste 40+ nama)" required></textarea>
+      </div>
+
+      <div style="background: rgba(99, 102, 241, 0.1); border: 1px dashed rgba(99, 102, 241, 0.3); border-radius: var(--radius-sm); padding: 10px 14px; font-size: 0.8rem; color: #c7d2fe; margin-bottom: 16px;">
+        💡 <strong>Tips:</strong> Anda bisa menyertakan nomor HP dengan menambahkan koma setelah nama (contoh: <code>Budi Santoso, 081234567890</code>). Nomor HP bersifat opsional.
+      </div>
+
+      <div style="display: flex; justify-content: flex-end; gap: 10px;">
+        <button type="button" onclick="closeModal('modalBulkAddMember')" class="btn btn-secondary">Batal</button>
+        <button type="submit" class="btn btn-primary">🚀 Simpan Semua Data</button>
+      </div>
+    </form>
   </div>
 </div>
 

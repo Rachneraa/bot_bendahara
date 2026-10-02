@@ -248,6 +248,8 @@ router.get('/members', requireAuth, async (req, res) => {
       selectedWeek,
       selectedYear,
       activeWeek,
+      bulkStatus: req.query.status || null,
+      bulkCount: req.query.count || 0,
       formatter
     });
   } catch (err) {
@@ -274,6 +276,53 @@ router.post('/members/add', requireAuth, async (req, res) => {
       await kasService.addMember({ name, phone_number });
     }
     res.redirect('/members');
+  } catch (err) {
+    res.redirect('/members?error=' + encodeURIComponent(err.message));
+  }
+});
+
+router.post('/members/add-bulk', requireAuth, async (req, res) => {
+  try {
+    const { bulk_data } = req.body;
+    if (!bulk_data || !bulk_data.trim()) {
+      return res.redirect('/members?error=' + encodeURIComponent('Data nama mahasiswa tidak boleh kosong.'));
+    }
+
+    const lines = bulk_data.split(/\r?\n/);
+    const parsedList = [];
+
+    for (let rawLine of lines) {
+      let line = rawLine.trim();
+      if (!line) continue;
+
+      // Bersihkan awalan penomoran seperti "1. ", "1) ", "1 - ", "* ", "- ", "• "
+      line = line.replace(/^[\d]+[\.\)\-\s]+\s*/, '');
+      line = line.replace(/^[\*\-\•\–\—]\s*/, '').trim();
+
+      if (!line) continue;
+
+      let name = line;
+      let phone_number = null;
+
+      // Cek pemisah koma, tab, atau titik koma (misal: "Ahmad Dani, 081234567890")
+      if (line.includes(',') || line.includes('\t') || line.includes(';')) {
+        const delimiter = line.includes('\t') ? '\t' : (line.includes(',') ? ',' : ';');
+        const parts = line.split(delimiter);
+        name = parts[0].trim();
+        phone_number = parts.slice(1).join('').trim() || null;
+      }
+
+      if (name) {
+        parsedList.push({ name, phone_number });
+      }
+    }
+
+    if (parsedList.length === 0) {
+      return res.redirect('/members?error=' + encodeURIComponent('Tidak ada nama valid yang ditemukan.'));
+    }
+
+    const count = await kasService.addBulkMembers(parsedList);
+    res.redirect('/members?status=bulk_added&count=' + count);
   } catch (err) {
     res.redirect('/members?error=' + encodeURIComponent(err.message));
   }
