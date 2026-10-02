@@ -9,8 +9,8 @@ import { cleanPhoneNumber } from '../utils/formatter.js';
 export async function isUserAdmin(sock, messageInfo) {
   try {
     const isGroup = messageInfo.isGroup;
-    const senderJid = messageInfo.senderJid; // e.g. 6281234567890@s.whatsapp.net
-    const senderNumber = cleanPhoneNumber(senderJid.split('@')[0]);
+    const senderJid = messageInfo.senderJid; // e.g. 6281234567890:2@s.whatsapp.net
+    const senderNumber = cleanPhoneNumber(senderJid);
 
     // 1. Cek nomor pengirim di whitelist .env dan database settings
     const envAdmins = (process.env.ADMIN_NUMBERS || '')
@@ -33,9 +33,18 @@ export async function isUserAdmin(sock, messageInfo) {
     // 2. Jika di grup WhatsApp, cek apakah dia admin grup
     if (isGroup && messageInfo.groupJid) {
       const groupMetadata = await sock.groupMetadata(messageInfo.groupJid);
+      const sBare = (senderJid || '').split('@')[0].split(':')[0];
+
       const participant = groupMetadata.participants.find(p => {
-        const pNum = cleanPhoneNumber(p.id.split('@')[0]);
-        return pNum === senderNumber;
+        const pBare = (p.id || '').split('@')[0].split(':')[0];
+        const pLidBare = (p.lid || '').split('@')[0].split(':')[0];
+        const pNum = cleanPhoneNumber(p.id);
+
+        return (
+          (pBare && pBare === sBare) ||
+          (pLidBare && pLidBare === sBare) ||
+          (pNum && senderNumber && pNum === senderNumber)
+        );
       });
 
       if (participant && (participant.admin === 'admin' || participant.admin === 'superadmin')) {

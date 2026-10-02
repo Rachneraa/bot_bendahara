@@ -146,7 +146,7 @@ export async function initBaileys() {
           const fromJid = msg.key.remoteJid;
           const isGroup = fromJid.endsWith('@g.us');
           const senderJid = isGroup ? (msg.key.participant || msg.participant) : fromJid;
-          const senderNumber = cleanPhoneNumber(senderJid.split('@')[0]);
+          const senderNumber = cleanPhoneNumber(senderJid);
 
           const messageInfo = {
             rawText,

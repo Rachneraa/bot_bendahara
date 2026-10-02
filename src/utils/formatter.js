@@ -31,10 +31,12 @@ export function getWeekNumber(d = new Date()) {
 
 export function cleanPhoneNumber(phone) {
   if (!phone) return '';
-  let cleaned = String(phone).replace(/\D/g, '');
+  // Buang suffix device WhatsApp Web/Multi-device (:1, :2) dan domain (@s.whatsapp.net, @lid)
+  const base = String(phone).split('@')[0].split(':')[0];
+  let cleaned = base.replace(/\D/g, '');
   if (cleaned.startsWith('0')) {
     cleaned = '62' + cleaned.slice(1);
-  } else if (!cleaned.startsWith('62')) {
+  } else if (!cleaned.startsWith('62') && cleaned.length > 0) {
     cleaned = '62' + cleaned;
   }
   return cleaned;
