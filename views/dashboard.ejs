@@ -8,8 +8,11 @@
         <%= botState.status === 'connected' ? '🟢' : (botState.status === 'waiting_code' ? '⏳' : '🔴') %>
       </div>
       <div>
-        <div style="display: flex; align-items: center; gap: 10px;">
+        <div style="display: flex; align-items: center; gap: 10px; flex-wrap: wrap;">
           <h3 style="font-size: 1.15rem; font-weight: 700;">Status Koneksi WhatsApp</h3>
+          <% if (typeof isBridge !== 'undefined' && isBridge) { %>
+            <span class="badge" style="background: rgba(99, 102, 241, 0.2); color: #a5b4fc; border: 1px solid rgba(99, 102, 241, 0.4);">🌐 Bridge Server cPanel</span>
+          <% } %>
           <% if (botState.status === 'connected') { %>
             <span class="badge badge-connected"><span class="status-dot"></span> Terhubung (<%= botState.botNumber %>)</span>
           <% } else if (botState.status === 'waiting_code') { %>

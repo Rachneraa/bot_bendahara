@@ -6,6 +6,8 @@
   <div class="alert alert-success">✅ Pengaturan sistem berhasil disimpan!</div>
 <% } else if (msgStatus === 'broadcast_sent') { %>
   <div class="alert alert-success">🚀 Siaran pengumuman berhasil dikirim ke grup WhatsApp!</div>
+<% } else if (msgStatus === 'test_sent') { %>
+  <div class="alert alert-success">🧪 Tes pengingat kelas berhasil dikirim ke grup WhatsApp!</div>
 <% } %>
 
 <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(400px, 1fr)); gap: 24px;">
@@ -105,6 +107,15 @@
             💾 Simpan Template Ini
           </button>
         </form>
+
+        <% if (t.key_name !== 'broadcast_default') { %>
+          <form action="/messages/test-reminder" method="POST" style="margin-top: 8px;">
+            <input type="hidden" name="template_key" value="<%= t.key_name %>">
+            <button type="submit" class="btn btn-secondary btn-sm" style="width: 100%; border: 1px dashed var(--accent-cyan); color: var(--accent-cyan);" title="Kirim simulasi pesan ini ke grup WA untuk memastikan formatnya sesuai">
+              🧪 Tes Kirim Pengingat Ini ke Grup
+            </button>
+          </form>
+        <% } %>
       </div>
     <% }) %>
   </div>

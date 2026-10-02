@@ -72,9 +72,27 @@ router.get('/', requireAuth, async (req, res) => {
     const weeklyStatus = await kasService.getWeeklyStatus();
     const targetGroup = await messageService.getSetting('target_group_jid');
 
+    let currentBotState = botState;
+    const isBridge = bridgeService.isBridgeMode();
+    if (isBridge) {
+      try {
+        const remote = await bridgeService.callRemoteBot('/api/bridge/status');
+        currentBotState = { ...remote, isRemote: true };
+      } catch (e) {
+        currentBotState = {
+          status: 'disconnected',
+          pairingCode: null,
+          botNumber: null,
+          lastError: 'Gagal terhubung ke bot server: ' + e.message,
+          isRemote: true
+        };
+      }
+    }
+
     res.render('dashboard', {
       user: req.session.user,
-      botState,
+      botState: currentBotState,
+      isBridge,
       saldoSummary,
       todayDay,
       todaySchedules,
@@ -102,13 +120,106 @@ router.post('/api/bot/pair', requireAuth, async (req, res) => {
   }
 });
 
-// Endpoint status bot untuk polling / live update status
-router.get('/api/bot/status', requireAuth, (req, res) => {
+import bridgeService from '../services/bridgeService.js';
+
+function verifyBridge(req, res, next) {
+  const secret = process.env.BRIDGE_SECRET || 'bot_bendahara_bridge_2026';
+  const token = req.headers['x-bridge-token'] || req.query.token;
+  if (token !== secret) {
+    return res.status(403).json({ success: false, message: 'Invalid bridge secret token' });
+  }
+  next();
+}
+
+// -------------------------------------------------------------
+// ENDPOINT BRIDGE UNTUK AKSES BOT DARI LOKAL KE CPANEL
+// -------------------------------------------------------------
+router.get('/api/bridge/status', verifyBridge, (req, res) => {
   res.json({
     status: botState.status,
     pairingCode: botState.pairingCode,
     botNumber: botState.botNumber,
     lastError: botState.lastError
+  });
+});
+
+router.post('/api/bridge/send', verifyBridge, async (req, res) => {
+  try {
+    const { targetGroupJid, messageText, mentionAll } = req.body;
+    await sendGroupNotification(targetGroupJid, messageText, Boolean(mentionAll));
+    res.json({ success: true, message: 'Pesan terkirim ke WhatsApp' });
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+router.post('/api/bridge/test-reminder', verifyBridge, async (req, res) => {
+  try {
+    const { templateKey } = req.body;
+    const targetGroup = await messageService.getSetting('target_group_jid');
+    if (!targetGroup) {
+      return res.status(400).json({ success: false, message: 'Target group JID belum disetel di server.' });
+    }
+
+    const template = await messageService.getTemplate(templateKey);
+    const schedules = await jadwalService.getAllSchedules(true);
+    const sampleSchedule = schedules[0] || {
+      day_of_week: 'senin',
+      start_time: '08:00:00',
+      end_time: '10:00:00',
+      course_name: 'Contoh Mata Kuliah (Testing)',
+      lecturer: 'Dosen Contoh, M.Kom',
+      note: 'Ini adalah pesan uji coba dari dashboard'
+    };
+
+    const text = messageService.buildReminderMessage(template ? template.content : '', sampleSchedule);
+    await sendGroupNotification(targetGroup, text, true);
+    res.json({ success: true, message: 'Tes pengingat terkirim ke WhatsApp' });
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+// Endpoint minta pairing code via dashboard
+router.post('/api/bot/pair', requireAuth, async (req, res) => {
+  try {
+    const { phoneNumber } = req.body;
+    if (!phoneNumber) {
+      return res.status(400).json({ success: false, message: 'Nomor telepon wajib diisi.' });
+    }
+    const code = await requestPairingCodeManual(phoneNumber);
+    res.json({ success: true, code });
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+// Endpoint status bot untuk polling / live update status
+router.get('/api/bot/status', requireAuth, async (req, res) => {
+  if (bridgeService.isBridgeMode()) {
+    try {
+      const remote = await bridgeService.callRemoteBot('/api/bridge/status');
+      return res.json({
+        ...remote,
+        isRemote: true
+      });
+    } catch (e) {
+      return res.json({
+        status: 'disconnected',
+        pairingCode: null,
+        botNumber: null,
+        lastError: 'Gagal terhubung ke bot server: ' + e.message,
+        isRemote: true
+      });
+    }
+  }
+
+  res.json({
+    status: botState.status,
+    pairingCode: botState.pairingCode,
+    botNumber: botState.botNumber,
+    lastError: botState.lastError,
+    isRemote: false
   });
 });
 
@@ -336,9 +447,48 @@ router.post('/messages/broadcast', requireAuth, async (req, res) => {
     }
 
     const shouldMention = mention_all === '1' || mention_all === 'on';
-    await sendGroupNotification(targetGroup, message_text.trim(), shouldMention);
 
+    if (bridgeService.isBridgeMode()) {
+      await bridgeService.callRemoteBot('/api/bridge/send', 'POST', {
+        targetGroupJid: targetGroup,
+        messageText: message_text.trim(),
+        mentionAll: shouldMention
+      });
+      return res.redirect('/messages?status=broadcast_sent');
+    }
+
+    await sendGroupNotification(targetGroup, message_text.trim(), shouldMention);
     res.redirect('/messages?status=broadcast_sent');
+  } catch (err) {
+    res.redirect('/messages?error=' + encodeURIComponent(err.message));
+  }
+});
+
+router.post('/messages/test-reminder', requireAuth, async (req, res) => {
+  try {
+    const { template_key } = req.body;
+    if (bridgeService.isBridgeMode()) {
+      await bridgeService.callRemoteBot('/api/bridge/test-reminder', 'POST', { templateKey: template_key });
+      return res.redirect('/messages?status=test_sent');
+    }
+
+    const targetGroup = await messageService.getSetting('target_group_jid');
+    if (!targetGroup) {
+      return res.redirect('/messages?error=' + encodeURIComponent('Grup target WhatsApp belum disetel!'));
+    }
+    const template = await messageService.getTemplate(template_key);
+    const schedules = await jadwalService.getAllSchedules(true);
+    const sampleSchedule = schedules[0] || {
+      day_of_week: 'senin',
+      start_time: '08:00:00',
+      end_time: '10:00:00',
+      course_name: 'Contoh Mata Kuliah (Testing)',
+      lecturer: 'Dosen Contoh, M.Kom',
+      note: 'Ini adalah pesan uji coba dari dashboard'
+    };
+    const text = messageService.buildReminderMessage(template ? template.content : '', sampleSchedule);
+    await sendGroupNotification(targetGroup, text, true);
+    res.redirect('/messages?status=test_sent');
   } catch (err) {
     res.redirect('/messages?error=' + encodeURIComponent(err.message));
   }
