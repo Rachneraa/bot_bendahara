@@ -236,7 +236,9 @@ export async function handleCommand(sock, messageInfo) {
 
 *👑 PENGATURAN GRUP & PENGUJIAN*
 • \`!bot setgroup\` : Daftarkan grup ini sebagai Grup Kelas Utama (pengingat otomatis).
+• \`!bot delgroup\` : Hapus pendaftaran Grup Kelas Utama.
 • \`!bot settestgroup\` : Daftarkan grup ini sebagai Grup Testing (uji coba fitur).
+• \`!bot deltestgroup\` : Hapus pendaftaran Grup Testing.
 • \`!bot test start\` : Mulai sesi uji coba fitur (merekam snapshot database).
 • \`!bot test reminder\` : Kirim simulasi pengingat kuliah ke grup testing.
 • \`!bot test reset\` : Hapus seluruh data tes & kembalikan database bersih.
@@ -276,6 +278,13 @@ export async function handleCommand(sock, messageInfo) {
       break;
     }
 
+    case 'delgroup':
+    case 'unsetgroup': {
+      await messageService.setSetting('target_group_jid', '');
+      await reply('✅ Pendaftaran *Grup Kelas Utama* berhasil dihapus. Bot tidak akan mengirimkan pengingat jadwal ke grup ini lagi.');
+      break;
+    }
+
     case 'settestgroup': {
       if (!isGroup) {
         await reply('❌ Perintah ini hanya bisa dijalankan di dalam grup WhatsApp.');
@@ -283,6 +292,13 @@ export async function handleCommand(sock, messageInfo) {
       }
       await messageService.setSetting('test_group_jid', groupJid);
       await reply(`🧪 Berhasil! Grup ini didaftarkan sebagai *Grup Testing / Uji Coba*.\n\nAnda dapat menguji fitur bot di sini tanpa mengganggu grup utama. Untuk simulasi pengingat jadwal, ketik:\n\`!bot test reminder\`\n\nID Grup Testing: \`${groupJid}\``);
+      break;
+    }
+
+    case 'deltestgroup':
+    case 'unsettestgroup': {
+      await messageService.setSetting('test_group_jid', '');
+      await reply('✅ Pendaftaran *Grup Testing* berhasil dihapus.');
       break;
     }
 
