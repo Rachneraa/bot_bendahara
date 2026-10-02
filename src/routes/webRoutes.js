@@ -23,6 +23,7 @@ router.get('/api/health', (req, res) => {
     status: 'ok',
     botStatus: botState.status,
     botNumber: botState.botNumber,
+    lastError: botState.lastError,
     timestamp: new Date().toISOString()
   });
 });

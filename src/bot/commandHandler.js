@@ -223,8 +223,9 @@ export async function handleCommand(sock, messageInfo) {
     await sock.sendMessage(fromJid, { text, mentions }, { quoted: messageInfo.rawMsg });
   };
 
-  const args = rawText.trim().split(/\s+/);
-  const subCmd = (args[1] || '').toLowerCase();
+  try {
+    const args = rawText.trim().split(/\s+/);
+    const subCmd = (args[1] || '').toLowerCase();
 
   switch (subCmd) {
     case '':
@@ -710,6 +711,10 @@ export async function handleCommand(sock, messageInfo) {
       break;
     }
   }
+} catch (err) {
+  console.error('[COMMAND ERROR]', err);
+  await reply(`❌ Terjadi kesalahan saat memproses perintah:\n_${err.message}_`);
+}
 }
 
 export default {
