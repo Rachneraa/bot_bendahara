@@ -34,10 +34,14 @@
     </div>
 
     <div>
-      <% if (botState.status !== 'connected') { %>
+      <% if (botState.status !== 'connected' && !(typeof isBridge !== 'undefined' && isBridge)) { %>
         <button onclick="openModal('modalPairing')" class="btn btn-primary btn-sm">
           📱 Hubungkan Nomor WA
         </button>
+      <% } else if (typeof isBridge !== 'undefined' && isBridge) { %>
+        <a href="https://bendahara.riachoune.my.id" target="_blank" class="btn btn-secondary btn-sm" title="Buka dashboard server cPanel">
+          🔗 Buka Server cPanel ↗
+        </a>
       <% } %>
     </div>
   </div>
