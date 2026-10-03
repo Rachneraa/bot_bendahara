@@ -38,6 +38,20 @@ let watchdogInterval = null;
 let lastPingTime = 0;
 
 /**
+ * Hancurkan socket lama tanpa memicu event loop rekoneksi
+ */
+function destroySocket(sock, reason = 'Socket destroyed') {
+  if (!sock) return;
+  try {
+    sock.ev?.removeAllListeners('connection.update');
+    sock.ev?.removeAllListeners('creds.update');
+    sock.ev?.removeAllListeners('messages.upsert');
+  } catch (_) {}
+  try { sock.ws?.terminate(); } catch (_) {}
+  try { sock.end(new Error(reason)); } catch (_) {}
+}
+
+/**
  * Ekstrak teks pesan WhatsApp secara komprehensif,
  * mendukung ephemeral (pesan sementara), view-once, caption media, dan pesan biasa.
  */
@@ -72,13 +86,10 @@ export async function forceReconnect(reason = 'Manual/Watchdog Reconnect') {
     return botState.socket;
   }
   console.log(`[WA] 🔄 Memicu forceReconnect: ${reason}`);
-  try {
-    if (botState.socket) {
-      try { botState.socket.ws?.terminate(); } catch (_) {}
-      try { botState.socket.end(new Error(reason)); } catch (_) {}
-    }
-  } catch (_) {}
+  const oldSock = botState.socket;
   botState.socket = null;
+  destroySocket(oldSock, reason);
+
   botState.status = 'disconnected';
   botState.step = 'disconnected';
   botState.lastError = reason;
@@ -135,11 +146,11 @@ export async function initBaileys() {
   botState.step = 'starting';
   botState.status = 'connecting';
 
-  // Bersihkan socket lama jika ada
+  // Bersihkan socket lama tanpa memicu listener rekoneksi ganda
   if (botState.socket) {
-    try { botState.socket.ws?.terminate(); } catch (_) {}
-    try { botState.socket.end(new Error('Reset socket')); } catch (_) {}
+    const oldSock = botState.socket;
     botState.socket = null;
+    destroySocket(oldSock, 'Replaced by initBaileys');
   }
 
   try {
@@ -147,7 +158,7 @@ export async function initBaileys() {
     const { state, saveCreds } = await useMultiFileAuthState(AUTH_DIR);
 
     botState.step = 'fetching_version';
-    let version = [2, 3000, 1015901307];
+    let version = [2, 3000, 1043857760];
     try {
       const vPromise = fetchLatestBaileysVersion();
       const tPromise = new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), 3500));
@@ -191,7 +202,7 @@ export async function initBaileys() {
     if (!sock.authState.creds.registered) {
       setTimeout(async () => {
         try {
-          // Ambil nomor dari database atau .env
+          if (botState.socket !== sock) return; // Abaikan jika socket sudah diganti
           let targetPhone = await getSetting('bot_phone_number');
           if (!targetPhone) {
             targetPhone = process.env.BOT_PHONE_NUMBER || '';
@@ -225,6 +236,11 @@ export async function initBaileys() {
 
     // Event Listener Koneksi
     sock.ev.on('connection.update', async (update) => {
+      // Pastikan event ini hanya milik socket aktif saat ini
+      if (botState.socket !== sock) {
+        return;
+      }
+
       const { connection, lastDisconnect, qr } = update;
 
       if (qr) {
@@ -242,7 +258,9 @@ export async function initBaileys() {
 
         if (shouldReconnect) {
           setTimeout(() => {
-            initBaileys().catch(e => console.error('[WA] Reconnect error:', e.message));
+            if (botState.status === 'disconnected') {
+              initBaileys().catch(e => console.error('[WA] Reconnect error:', e.message));
+            }
           }, 5000);
         } else {
           console.log('[WA] Sesi telah logout. Silakan hubungkan ulang nomor bot.');
@@ -260,6 +278,7 @@ export async function initBaileys() {
         botState.status = 'connected';
         botState.step = 'connected';
         botState.pairingCode = null;
+        botState.lastError = null;
         botState.botNumber = sock.user?.id ? sock.user.id.split(':')[0] : 'Aktif';
         botState.lastActivePing = new Date().toISOString();
         lastPingTime = Date.now();
@@ -270,6 +289,7 @@ export async function initBaileys() {
     // Event Listener Pesan Masuk
     sock.ev.on('messages.upsert', async (m) => {
       try {
+        if (botState.socket !== sock) return;
         if (m.type !== 'notify') return;
 
         for (const msg of m.messages) {
