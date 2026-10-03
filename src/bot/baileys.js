@@ -7,7 +7,7 @@ import makeWASocket, {
 import pino from 'pino';
 import path from 'path';
 import fs from 'fs';
-import { isUserAdmin } from './adminHandler.js';
+import { isUserAdmin, getCachedGroupMetadata } from './adminHandler.js';
 import { handleCommand, hasActiveSession, handleInteractiveChoice } from './commandHandler.js';
 import { getSetting, setSetting } from '../services/messageService.js';
 import { cleanPhoneNumber } from '../utils/formatter.js';
@@ -21,7 +21,7 @@ if (!fs.existsSync(AUTH_DIR)) {
   fs.mkdirSync(AUTH_DIR, { recursive: true });
 }
 
-// Global state bot yang dapat diakses oleh Web Dashboard
+// Global state bot yang dapat diakses oleh Web Dashboard & Health Check
 export const botState = {
   status: 'disconnected', // 'disconnected' | 'connecting' | 'waiting_code' | 'connected'
   step: 'idle',
@@ -29,12 +29,119 @@ export const botState = {
   botNumber: null,
   lastError: null,
   socket: null,
-  qr: null
+  qr: null,
+  lastActivePing: null
 };
 
+let isInitializing = false;
+let watchdogInterval = null;
+let lastPingTime = 0;
+
+/**
+ * Ekstrak teks pesan WhatsApp secara komprehensif,
+ * mendukung ephemeral (pesan sementara), view-once, caption media, dan pesan biasa.
+ */
+export function extractMessageText(msg) {
+  if (!msg || !msg.message) return '';
+  const m = msg.message;
+  const inner =
+    m.ephemeralMessage?.message ||
+    m.viewOnceMessage?.message ||
+    m.viewOnceMessageV2?.message ||
+    m.documentWithCaptionMessage?.message ||
+    m;
+
+  return (
+    inner.conversation ||
+    inner.extendedTextMessage?.text ||
+    inner.imageMessage?.caption ||
+    inner.videoMessage?.caption ||
+    inner.documentMessage?.caption ||
+    m.conversation ||
+    m.extendedTextMessage?.text ||
+    ''
+  );
+}
+
+/**
+ * Memaksa pembersihan socket lama dan melakukan inisialisasi ulang
+ */
+export async function forceReconnect(reason = 'Manual/Watchdog Reconnect') {
+  if (isInitializing) {
+    console.log(`[WA] Inisialisasi sedang berlangsung, lewati forceReconnect (${reason})`);
+    return botState.socket;
+  }
+  console.log(`[WA] 🔄 Memicu forceReconnect: ${reason}`);
+  try {
+    if (botState.socket) {
+      try { botState.socket.ws?.terminate(); } catch (_) {}
+      try { botState.socket.end(new Error(reason)); } catch (_) {}
+    }
+  } catch (_) {}
+  botState.socket = null;
+  botState.status = 'disconnected';
+  botState.step = 'disconnected';
+  botState.lastError = reason;
+  return await initBaileys();
+}
+
+/**
+ * Background Watchdog untuk mendeteksi TCP half-open (zombie connection)
+ * Menjaga NAT router/cPanel tidak memutus idle socket selama berjam-jam
+ */
+function startWatchdog() {
+  if (watchdogInterval) clearInterval(watchdogInterval);
+  watchdogInterval = setInterval(async () => {
+    try {
+      if (process.env.ENABLE_WHATSAPP === 'false') return;
+
+      const sock = botState.socket;
+      if (!sock) return;
+
+      const ws = sock.ws;
+      // 0: CONNECTING, 1: OPEN, 2: CLOSING, 3: CLOSED
+      if (botState.status === 'connected') {
+        if (!ws || ws.readyState !== 1) {
+          console.warn(`[WATCHDOG] ⚠️ WebSocket tidak dalam status OPEN (readyState: ${ws?.readyState}). Memaksa rekoneksi...`);
+          await forceReconnect('WebSocket readyState not OPEN');
+          return;
+        }
+
+        // Setiap 60 detik kirim presence ping untuk menjaga socket TCP NAT tetap hidup
+        const now = Date.now();
+        if (now - lastPingTime >= 60_000) {
+          lastPingTime = now;
+          try {
+            await sock.sendPresenceUpdate('available');
+            botState.lastActivePing = new Date().toISOString();
+          } catch (pingErr) {
+            console.warn('[WATCHDOG] ⚠️ Ping presence gagal! Socket zombie terdeteksi:', pingErr.message);
+            await forceReconnect('Ping presence failed: ' + pingErr.message);
+          }
+        }
+      }
+    } catch (err) {
+      console.error('[WATCHDOG] Error watchdog:', err.message);
+    }
+  }, 30_000); // Evaluasi tiap 30 detik
+}
+
 export async function initBaileys() {
+  if (isInitializing) {
+    console.log('[WA] Inisialisasi Baileys sedang berlangsung...');
+    return botState.socket;
+  }
+  isInitializing = true;
   botState.step = 'starting';
   botState.status = 'connecting';
+
+  // Bersihkan socket lama jika ada
+  if (botState.socket) {
+    try { botState.socket.ws?.terminate(); } catch (_) {}
+    try { botState.socket.end(new Error('Reset socket')); } catch (_) {}
+    botState.socket = null;
+  }
+
   try {
     botState.step = 'loading_auth';
     const { state, saveCreds } = await useMultiFileAuthState(AUTH_DIR);
@@ -65,11 +172,20 @@ export async function initBaileys() {
       },
       browser: ['Ubuntu', 'Chrome', '20.0.04'],
       generateHighQualityLinkPreview: true,
-      syncFullHistory: false
+      syncFullHistory: false,
+      keepAliveIntervalMs: 15_000, // Ping frame tiap 15 detik agar koneksi NAT tidak ditutup firewall
+      connectTimeoutMs: 30_000,
+      defaultQueryTimeoutMs: 30_000,
+      markOnlineOnConnect: true,
+      retryRequestDelayMs: 250,
+      maxMsgRetryCount: 3
     });
 
     botState.socket = sock;
     botState.step = sock.authState.creds.registered ? 'waiting_connection_open' : 'unregistered';
+
+    // Jalankan watchdog heartbeat
+    startWatchdog();
 
     // Logika Pairing Code jika belum login
     if (!sock.authState.creds.registered) {
@@ -125,23 +241,28 @@ export async function initBaileys() {
         console.log(`[WA] Koneksi terputus (status: ${statusCode}). Mencoba rekoneksi: ${shouldReconnect}`);
 
         if (shouldReconnect) {
-          setTimeout(initBaileys, 5000);
+          setTimeout(() => {
+            initBaileys().catch(e => console.error('[WA] Reconnect error:', e.message));
+          }, 5000);
         } else {
           console.log('[WA] Sesi telah logout. Silakan hubungkan ulang nomor bot.');
-          // Hapus auth_info jika logout permanen
           try {
             fs.rmSync(AUTH_DIR, { recursive: true, force: true });
             fs.mkdirSync(AUTH_DIR, { recursive: true });
           } catch (e) {
             console.error('Gagal reset auth_info:', e);
           }
-          setTimeout(initBaileys, 3000);
+          setTimeout(() => {
+            initBaileys().catch(e => console.error('[WA] Re-init after logout error:', e.message));
+          }, 3000);
         }
       } else if (connection === 'open') {
         botState.status = 'connected';
         botState.step = 'connected';
         botState.pairingCode = null;
         botState.botNumber = sock.user?.id ? sock.user.id.split(':')[0] : 'Aktif';
+        botState.lastActivePing = new Date().toISOString();
+        lastPingTime = Date.now();
         console.log(`[WA] ✅ Bot berhasil terhubung! ID: ${sock.user?.id}`);
       }
     });
@@ -154,12 +275,8 @@ export async function initBaileys() {
         for (const msg of m.messages) {
           if (!msg.message || msg.key.fromMe) continue;
 
-          // Ambil isi teks pesan
-          const rawText = 
-            msg.message.conversation ||
-            msg.message.extendedTextMessage?.text ||
-            msg.message.imageMessage?.caption ||
-            '';
+          // Ambil isi teks pesan secara komprehensif
+          const rawText = extractMessageText(msg);
 
           const fromJid = msg.key.remoteJid;
           const isGroup = fromJid.endsWith('@g.us');
@@ -198,8 +315,7 @@ export async function initBaileys() {
           // Verifikasi hak akses Admin (Admin Grup atau Whitelist)
           const isAdmin = await isUserAdmin(sock, messageInfo);
           if (!isAdmin) {
-            // Abaikan tanpa membalas error (silent ignore)
-            console.log(`[WA] Mengabaikan perintah dari non-admin: ${senderNumber}`);
+            console.log(`[WA] Mengabaikan perintah dari non-admin: ${senderNumber} (JID: ${senderJid})`);
             continue;
           }
 
@@ -217,6 +333,8 @@ export async function initBaileys() {
     botState.status = 'disconnected';
     botState.lastError = error.message;
     return null;
+  } finally {
+    isInitializing = false;
   }
 }
 
@@ -247,8 +365,10 @@ export async function sendGroupNotification(targetGroupJid, text, mentionAll = t
   let mentions = [];
   if (mentionAll) {
     try {
-      const metadata = await botState.socket.groupMetadata(targetGroupJid);
-      mentions = metadata.participants.map(p => p.id);
+      const metadata = await getCachedGroupMetadata(botState.socket, targetGroupJid);
+      if (metadata && Array.isArray(metadata.participants)) {
+        mentions = metadata.participants.map(p => p.id);
+      }
     } catch (e) {
       console.warn('[WA] Gagal mengambil metadata grup untuk mention all:', e.message);
     }
@@ -263,6 +383,8 @@ export async function sendGroupNotification(targetGroupJid, text, mentionAll = t
 export default {
   botState,
   initBaileys,
+  forceReconnect,
   requestPairingCodeManual,
-  sendGroupNotification
+  sendGroupNotification,
+  extractMessageText
 };

@@ -7,7 +7,7 @@ import messageService from '../services/messageService.js';
 import formatter from '../utils/formatter.js';
 import fs from 'fs';
 import path from 'path';
-import { botState, requestPairingCodeManual, sendGroupNotification, initBaileys, AUTH_DIR } from '../bot/baileys.js';
+import { botState, requestPairingCodeManual, sendGroupNotification, initBaileys, forceReconnect, AUTH_DIR } from '../bot/baileys.js';
 
 const router = express.Router();
 
@@ -19,15 +19,23 @@ export function requireAuth(req, res, next) {
   return res.redirect('/login');
 }
 
-// Endpoint Health Check (untuk keep-alive cron & self-healing)
+// Endpoint Health Check (untuk keep-alive cron & self-healing otomatis)
 router.get('/api/health', (req, res) => {
   const credsFile = path.join(AUTH_DIR, 'creds.json');
   const hasCreds = fs.existsSync(credsFile);
+  const enableWA = process.env.ENABLE_WHATSAPP !== 'false';
+  let selfHealed = false;
 
-  // Jika bot disconnected tapi kredensial login ada, picu rekoneksi otomatis
-  if (botState.status === 'disconnected' && hasCreds && process.env.ENABLE_WHATSAPP !== 'false' && !botState.socket) {
-    console.log('[HEALTH] Memicu rekoneksi Baileys otomatis...');
-    initBaileys().catch(e => console.error('[HEALTH] Auto init error:', e));
+  const wsReady = botState.socket?.ws?.readyState; // 1 = OPEN
+  const isZombie = botState.status === 'connected' && (!botState.socket || wsReady !== 1);
+  const force = req.query.force === 'true' || req.query.reconnect === 'true';
+
+  // Jika diminta paksa atau socket terdeteksi zombie/terputus padahal kredensial ada
+  if (enableWA && hasCreds && (force || isZombie || (botState.status === 'disconnected' && !botState.socket))) {
+    const reason = force ? 'Manual forced query' : (isZombie ? 'Zombie socket detected' : 'Disconnected recovery');
+    console.log(`[HEALTH] 🩺 Memicu self-healing Baileys (${reason})...`);
+    forceReconnect(reason).catch(e => console.error('[HEALTH] Auto init error:', e));
+    selfHealed = true;
   }
 
   res.json({
@@ -35,17 +43,20 @@ router.get('/api/health', (req, res) => {
     botStatus: botState.status,
     botNumber: botState.botNumber,
     step: botState.step,
+    wsReadyState: wsReady === 1 ? 'OPEN' : (wsReady === 0 ? 'CONNECTING' : (wsReady === undefined ? 'NONE' : 'CLOSED')),
     hasCreds,
-    enableWA: process.env.ENABLE_WHATSAPP !== 'false',
+    enableWA,
+    selfHealed,
+    lastActivePing: botState.lastActivePing,
     lastError: botState.lastError,
     timestamp: new Date().toISOString()
   });
 });
 
 // Endpoint pemicu koneksi ulang manual
-router.get('/api/bot/reconnect', (req, res) => {
+router.get('/api/bot/reconnect', async (req, res) => {
   try {
-    initBaileys().catch(e => console.error('[RECONNECT ERROR]', e));
+    forceReconnect('Manual user request via /api/bot/reconnect').catch(e => console.error('[RECONNECT ERROR]', e));
     res.json({ success: true, message: 'Inisialisasi ulang bot dipicu!' });
   } catch (err) {
     res.status(500).json({ success: false, message: err.message });

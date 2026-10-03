@@ -2,6 +2,7 @@ import kasService from '../services/kasService.js';
 import jadwalService from '../services/jadwalService.js';
 import messageService from '../services/messageService.js';
 import formatter from '../utils/formatter.js';
+import { getCachedGroupMetadata } from './adminHandler.js';
 
 export const pendingAmbiguousSessions = new Map();
 
@@ -304,8 +305,10 @@ export async function handleCommand(sock, messageInfo) {
 
         let mentions = [];
         try {
-          const metadata = await sock.groupMetadata(targetJid);
-          mentions = metadata.participants.map(p => p.id);
+          const metadata = await getCachedGroupMetadata(sock, targetJid);
+          if (metadata && Array.isArray(metadata.participants)) {
+            mentions = metadata.participants.map(p => p.id);
+          }
         } catch (e) {
           // metadata error ignored
         }
