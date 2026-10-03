@@ -1,5 +1,17 @@
 <%- include('layout/header', { pageTitle: 'Buku Kas & Keuangan', pageDesc: 'Pencatatan kas masuk, pengeluaran kelas, dan riwayat mutasi transaksi' }) %>
 
+<!-- Notifikasi Status -->
+<% if (typeof bulkStatus !== 'undefined' && bulkStatus === 'success') { %>
+  <div class="glass-card" style="border-left: 4px solid var(--accent-emerald); background: rgba(16, 185, 129, 0.1); margin-bottom: 24px; padding: 16px 20px;">
+    <h4 style="color: var(--accent-emerald); margin: 0 0 6px 0; font-size: 1rem;">
+      🎉 Berhasil Mencatat <%= bulkCount %> Transaksi Kas Masuk Sekaligus!
+    </h4>
+    <p style="color: var(--text-muted); margin: 0; font-size: 0.88rem;">
+      Total dana kas masuk yang ditambahkan: <strong><%= formatter.formatRupiah(bulkTotal) %></strong>. Saldo kelas telah diperbarui.
+    </p>
+  </div>
+<% } %>
+
 <!-- Ringkasan Saldo -->
 <div class="stats-grid">
   <div class="stat-card">
@@ -27,16 +39,21 @@
   </div>
 </div>
 
-<div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 16px;">
+<div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 16px; margin-bottom: 16px;">
   <div>
-    <h2 style="font-size: 1.2rem; font-weight: 700;">Riwayat Mutasi Kas Terakhir</h2>
-    <p style="font-size: 0.85rem; color: var(--text-muted);">
+    <h2 style="font-size: 1.2rem; font-weight: 700; margin: 0;">Riwayat Mutasi Kas Terakhir</h2>
+    <p style="font-size: 0.85rem; color: var(--text-muted); margin: 4px 0 0 0;">
       Menampilkan transaksi yang dicatat via Bot WhatsApp maupun Web Dashboard.
     </p>
   </div>
-  <button onclick="openModal('modalAddKas')" class="btn btn-primary">
-    ➕ Catat Transaksi Kas
-  </button>
+  <div style="display: flex; gap: 10px; flex-wrap: wrap;">
+    <button onclick="openModal('modalBulkAddKas')" class="btn btn-secondary" style="border: 1px solid var(--accent-primary); color: #c7d2fe; display: inline-flex; align-items: center; gap: 6px;">
+      📥 Input Kas Massal
+    </button>
+    <button onclick="openModal('modalAddKas')" class="btn btn-primary" style="display: inline-flex; align-items: center; gap: 6px;">
+      ➕ Catat Transaksi Satuan
+    </button>
+  </div>
 </div>
 
 <!-- Tabel Transaksi -->
@@ -97,7 +114,7 @@
   </div>
 </div>
 
-<!-- Modal Tambah Transaksi Kas -->
+<!-- Modal Tambah Transaksi Satuan -->
 <div class="modal-overlay" id="modalAddKas">
   <div class="modal-content">
     <div class="card-header">
@@ -140,5 +157,215 @@
     </form>
   </div>
 </div>
+
+<!-- Modal Input Kas Massal (2 Mode: Checklist & Paste Teks) -->
+<div class="modal-overlay" id="modalBulkAddKas">
+  <div class="modal-content" style="max-width: 650px;">
+    <div class="card-header">
+      <div>
+        <h3 class="card-title">📥 Input Kas Masuk Sekaligus</h3>
+        <p style="font-size: 0.82rem; color: var(--text-muted); margin: 4px 0 0 0;">
+          Tandai pembayaran banyak mahasiswa sekaligus atau paste daftar catatan kas.
+        </p>
+      </div>
+      <button onclick="closeModal('modalBulkAddKas')" style="background: none; border: none; color: var(--text-muted); cursor: pointer; font-size: 1.2rem;">✕</button>
+    </div>
+
+    <!-- Tab Switcher -->
+    <div style="display: flex; gap: 8px; margin-bottom: 20px; border-bottom: 1px solid var(--border-color); padding-bottom: 12px;">
+      <button type="button" id="tabBtnChecklist" onclick="switchBulkTab('checklist')" class="btn btn-primary btn-sm" style="flex: 1;">
+        📋 Mode 1: Centang Mahasiswa
+      </button>
+      <button type="button" id="tabBtnText" onclick="switchBulkTab('text')" class="btn btn-secondary btn-sm" style="flex: 1;">
+        ✍️ Mode 2: Copas Teks Banyak
+      </button>
+    </div>
+
+    <form action="/kas/bulk-add" method="POST" id="formBulkAddKas">
+      <input type="hidden" name="mode" id="bulkModeInput" value="checklist">
+
+      <!-- Target Periode Minggu & Tahun -->
+      <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 16px;">
+        <div class="form-group" style="margin-bottom: 0;">
+          <label for="bulkWeek">Minggu Iuran Ke-</label>
+          <input type="number" id="bulkWeek" name="week_number" value="<%= typeof activeWeek !== 'undefined' ? activeWeek : 1 %>" min="1" max="52" required>
+        </div>
+        <div class="form-group" style="margin-bottom: 0;">
+          <label for="bulkYear">Tahun</label>
+          <input type="number" id="bulkYear" name="year" value="<%= typeof currentYear !== 'undefined' ? currentYear : new Date().getFullYear() %>" required>
+        </div>
+      </div>
+
+      <!-- PANE 1: MODE CHECKLIST -->
+      <div id="paneChecklist">
+        <div class="form-group">
+          <label for="bulkDefaultAmount">Nominal Iuran per Mahasiswa (Rp)</label>
+          <input type="number" id="bulkDefaultAmount" name="default_amount" value="10000" min="1000" step="500">
+        </div>
+
+        <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 8px; margin-bottom: 10px;">
+          <div style="display: flex; gap: 6px; flex-wrap: wrap;">
+            <button type="button" onclick="setAllCheckboxes(true)" class="btn btn-secondary btn-sm" style="padding: 4px 8px; font-size: 0.78rem;">
+              ☑️ Centang Semua
+            </button>
+            <button type="button" onclick="selectUnpaidOnly()" class="btn btn-secondary btn-sm" style="padding: 4px 8px; font-size: 0.78rem; color: #34d399; border-color: rgba(52, 211, 153, 0.4);">
+              🟩 Yang Belum Lunas Saja
+            </button>
+            <button type="button" onclick="setAllCheckboxes(false)" class="btn btn-secondary btn-sm" style="padding: 4px 8px; font-size: 0.78rem;">
+              ⬜ Kosongkan
+            </button>
+          </div>
+          <span id="selectedCountBadge" style="font-size: 0.8rem; color: var(--accent-primary); font-weight: 600;">
+            0 mahasiswa dipilih
+          </span>
+        </div>
+
+        <!-- Filter Nama Cepat -->
+        <input type="text" id="filterMemberInput" oninput="filterMemberList(this.value)" placeholder="🔍 Ketik untuk mencari nama..." style="margin-bottom: 10px; font-size: 0.84rem; padding: 8px 12px;">
+
+        <!-- Container Daftar Mahasiswa -->
+        <div id="memberChecklistContainer" style="max-height: 220px; overflow-y: auto; background: rgba(0, 0, 0, 0.25); border: 1px solid var(--border-color); border-radius: 8px; padding: 8px 12px;">
+          <% if (typeof weeklyStatus !== 'undefined' && weeklyStatus.all && weeklyStatus.all.length > 0) { %>
+            <% weeklyStatus.all.forEach(m => { %>
+              <label class="member-check-row" data-name="<%= m.name.toLowerCase() %>" data-paid="<%= m.is_paid %>" style="display: flex; align-items: center; justify-content: space-between; padding: 6px 8px; border-radius: 6px; margin-bottom: 4px; cursor: pointer; transition: background 0.15s ease;">
+                <div style="display: flex; align-items: center; gap: 10px;">
+                  <input type="checkbox" name="member_ids" value="<%= m.id %>" class="member-checkbox" onchange="updateSelectedCount()" style="width: auto; cursor: pointer;">
+                  <span style="font-size: 0.88rem; color: var(--text-color);"><%= m.name %></span>
+                </div>
+                <% if (m.is_paid) { %>
+                  <span class="badge badge-connected" style="font-size: 0.72rem; padding: 2px 8px;">✅ Lunas</span>
+                <% } else { %>
+                  <span class="badge badge-disconnected" style="font-size: 0.72rem; padding: 2px 8px;">Belum</span>
+                <% } %>
+              </label>
+            <% }) %>
+          <% } else { %>
+            <% members.forEach(m => { %>
+              <label class="member-check-row" data-name="<%= m.name.toLowerCase() %>" data-paid="0" style="display: flex; align-items: center; justify-content: space-between; padding: 6px 8px; border-radius: 6px; margin-bottom: 4px; cursor: pointer;">
+                <div style="display: flex; align-items: center; gap: 10px;">
+                  <input type="checkbox" name="member_ids" value="<%= m.id %>" class="member-checkbox" onchange="updateSelectedCount()" style="width: auto; cursor: pointer;">
+                  <span style="font-size: 0.88rem;"><%= m.name %></span>
+                </div>
+              </label>
+            <% }) %>
+          <% } %>
+        </div>
+      </div>
+
+      <!-- PANE 2: MODE PASTE TEKS -->
+      <div id="paneText" style="display: none;">
+        <div class="form-group">
+          <label for="bulkKasText">Salin & Tempel Daftar Kas Masuk (1 Baris per Pembayaran)</label>
+          <textarea id="bulkKasText" name="bulk_text" rows="8" placeholder="Contoh format:&#10;- 10000 Rouf kholik&#10;- 10k Budi&#10;- 20000 Siti&#10;Donasi alumni 50000" style="font-family: inherit; font-size: 0.86rem; line-height: 1.5;"></textarea>
+          <small style="color: var(--text-dim); display: block; margin-top: 6px; line-height: 1.4;">
+            💡 <strong>Sistem Cerdas:</strong> Mendukung tanda strip <code>-</code> atau nomor baris. Potongan nama/typo (misal: <code>rof</code>) otomatis dicocokkan ke nama mahasiswa. Catatan tanpa nama mahasiswa (misal: donasi) otomatis dicatat sebagai kas masuk umum.
+          </small>
+        </div>
+      </div>
+
+      <!-- Checkbox Kirim Notifikasi WhatsApp -->
+      <div style="margin-top: 16px; padding: 12px; background: rgba(255, 255, 255, 0.03); border: 1px solid var(--border-color); border-radius: 8px;">
+        <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 8px;">
+          <input type="checkbox" id="sendWaCheck" name="send_wa" value="1" checked style="width: auto; cursor: pointer;">
+          <label for="sendWaCheck" style="margin: 0; font-size: 0.88rem; font-weight: 600; cursor: pointer; color: var(--accent-emerald);">
+            📢 Kirim pengumuman laporan kas ini ke WhatsApp
+          </label>
+        </div>
+        <div style="display: flex; align-items: center; gap: 10px; padding-left: 26px;">
+          <label style="font-size: 0.8rem; color: var(--text-muted); margin: 0;">Kirim ke:</label>
+          <select name="wa_target" style="padding: 4px 10px; font-size: 0.8rem; width: auto; max-width: 220px;">
+            <option value="main">Grup Kelas Utama</option>
+            <% if (typeof testGroup !== 'undefined' && testGroup) { %>
+              <option value="test">Grup Testing / Uji Coba</option>
+            <% } %>
+          </select>
+        </div>
+      </div>
+
+      <div style="display: flex; justify-content: flex-end; gap: 10px; margin-top: 20px;">
+        <button type="button" onclick="closeModal('modalBulkAddKas')" class="btn btn-secondary">Batal</button>
+        <button type="submit" class="btn btn-primary" id="btnSubmitBulk">Simpan Kas Masuk</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<script>
+  function switchBulkTab(tab) {
+    const paneChecklist = document.getElementById('paneChecklist');
+    const paneText = document.getElementById('paneText');
+    const tabBtnChecklist = document.getElementById('tabBtnChecklist');
+    const tabBtnText = document.getElementById('tabBtnText');
+    const modeInput = document.getElementById('bulkModeInput');
+
+    if (tab === 'checklist') {
+      paneChecklist.style.display = 'block';
+      paneText.style.display = 'none';
+      tabBtnChecklist.className = 'btn btn-primary btn-sm';
+      tabBtnText.className = 'btn btn-secondary btn-sm';
+      modeInput.value = 'checklist';
+    } else {
+      paneChecklist.style.display = 'none';
+      paneText.style.display = 'block';
+      tabBtnChecklist.className = 'btn btn-secondary btn-sm';
+      tabBtnText.className = 'btn btn-primary btn-sm';
+      modeInput.value = 'text';
+    }
+  }
+
+  function setAllCheckboxes(checked) {
+    const rows = document.querySelectorAll('.member-check-row');
+    rows.forEach(r => {
+      if (r.style.display !== 'none') {
+        const cb = r.querySelector('.member-checkbox');
+        if (cb) cb.checked = checked;
+      }
+    });
+    updateSelectedCount();
+  }
+
+  function selectUnpaidOnly() {
+    const rows = document.querySelectorAll('.member-check-row');
+    rows.forEach(r => {
+      const isPaid = r.getAttribute('data-paid') === '1';
+      const cb = r.querySelector('.member-checkbox');
+      if (cb) {
+        cb.checked = !isPaid;
+      }
+    });
+    updateSelectedCount();
+  }
+
+  function updateSelectedCount() {
+    const cbs = document.querySelectorAll('.member-checkbox:checked');
+    const badge = document.getElementById('selectedCountBadge');
+    if (badge) {
+      badge.innerText = cbs.length + ' mahasiswa dipilih';
+    }
+  }
+
+  function filterMemberList(query) {
+    const q = (query || '').toLowerCase().trim();
+    const rows = document.querySelectorAll('.member-check-row');
+    rows.forEach(r => {
+      const name = r.getAttribute('data-name') || '';
+      if (!q || name.includes(q)) {
+        r.style.display = 'flex';
+      } else {
+        r.style.display = 'none';
+      }
+    });
+  }
+
+  // Hover effect untuk baris checklist
+  document.querySelectorAll('.member-check-row').forEach(row => {
+    row.addEventListener('mouseenter', () => {
+      row.style.background = 'rgba(255, 255, 255, 0.06)';
+    });
+    row.addEventListener('mouseleave', () => {
+      row.style.background = 'transparent';
+    });
+  });
+</script>
 
 <%- include('layout/footer') %>

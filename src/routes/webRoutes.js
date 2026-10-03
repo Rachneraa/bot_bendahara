@@ -620,12 +620,25 @@ router.get('/kas', requireAuth, async (req, res) => {
     const saldoSummary = await kasService.getSaldoSummary();
     const transactions = await kasService.getRecentTransactions(50);
     const members = await kasService.getMembers(true);
+    const activeSetting = await messageService.getSetting('active_semester_week', '1');
+    const activeWeek = parseInt(activeSetting, 10) || 1;
+    const weeklyStatus = await kasService.getWeeklyStatus(activeWeek, new Date().getFullYear());
+    const targetGroup = await messageService.getSetting('target_group_jid');
+    const testGroup = await messageService.getSetting('test_group_jid');
 
     res.render('kas', {
       user: req.session.user,
       saldoSummary,
       transactions,
       members,
+      weeklyStatus,
+      activeWeek,
+      currentYear: new Date().getFullYear(),
+      targetGroup,
+      testGroup,
+      bulkStatus: req.query.bulk_status || null,
+      bulkCount: req.query.bulk_count || 0,
+      bulkTotal: req.query.bulk_total || 0,
       formatter
     });
   } catch (err) {
@@ -652,6 +665,89 @@ router.post('/kas/add', requireAuth, async (req, res) => {
     });
 
     res.redirect('/kas');
+  } catch (err) {
+    res.redirect('/kas?error=' + encodeURIComponent(err.message));
+  }
+});
+
+router.post('/kas/bulk-add', requireAuth, async (req, res) => {
+  try {
+    const { mode, member_ids, default_amount, bulk_text, week_number, year, send_wa, wa_target } = req.body;
+    const week = parseInt(week_number, 10) || 1;
+    const yr = parseInt(year, 10) || new Date().getFullYear();
+    const username = req.session.user.username;
+
+    let result;
+    if (mode === 'text') {
+      result = await kasService.recordBulkKasText({
+        raw_text: bulk_text,
+        week_number: week,
+        year: yr,
+        created_by: username,
+        source: 'web_dashboard'
+      });
+    } else {
+      const ids = Array.isArray(member_ids) ? member_ids : (member_ids ? [member_ids] : []);
+      if (ids.length === 0) {
+        return res.redirect('/kas?error=' + encodeURIComponent('Pilih minimal 1 mahasiswa untuk dicatat kasnya.'));
+      }
+      result = await kasService.recordBulkKasChecklist({
+        member_ids: ids,
+        amount: default_amount,
+        week_number: week,
+        year: yr,
+        created_by: username,
+        source: 'web_dashboard'
+      });
+    }
+
+    if (result.count === 0) {
+      return res.redirect('/kas?error=' + encodeURIComponent('Tidak ada data kas yang berhasil dicatat. Cek format nominal & nama.'));
+    }
+
+    // Jika opsi kirim WA dicentang
+    if (send_wa === '1' || send_wa === 'on') {
+      try {
+        const targetGroup = await messageService.getSetting('target_group_jid');
+        const testGroup = await messageService.getSetting('test_group_jid');
+        const destJid = wa_target === 'test' ? testGroup : (targetGroup || testGroup);
+
+        if (destJid) {
+          const saldo = await kasService.getSaldoSummary();
+          let waMsg = `💰 *[LAPORAN KAS MASUK - WEB DASHBOARD]*\n`;
+          waMsg += `📅 Periode: Minggu ke-${week} (${yr})\n\n`;
+          waMsg += `✅ *Berhasil dicatat (${result.count} data):*\n`;
+
+          const listToShow = result.successList || [];
+          listToShow.forEach((item, idx) => {
+            waMsg += `${idx + 1}. *${item.name}* (${formatter.formatRupiah(item.amount)})\n`;
+          });
+
+          if (result.generalList && result.generalList.length > 0) {
+            result.generalList.forEach((item) => {
+              waMsg += `• *${item.name}* (${formatter.formatRupiah(item.amount)})\n`;
+            });
+          }
+
+          waMsg += `\n💵 *Total Tambahan:* ${formatter.formatRupiah(result.totalAmount)}\n`;
+          waMsg += `💎 *Sisa Saldo Kas Kini:* *${formatter.formatRupiah(saldo.saldo)}*`;
+
+          if (bridgeService.isBridgeMode()) {
+            await bridgeService.callRemoteBot('/api/bridge/send', 'POST', {
+              targetGroupJid: destJid,
+              messageText: waMsg,
+              mentionAll: false
+            });
+          } else {
+            await sendGroupNotification(destJid, waMsg, false);
+          }
+        }
+      } catch (waErr) {
+        console.warn('[WA NOTIF ERROR]', waErr.message);
+      }
+    }
+
+    res.redirect(`/kas?bulk_status=success&bulk_count=${result.count}&bulk_total=${result.totalAmount}`);
   } catch (err) {
     res.redirect('/kas?error=' + encodeURIComponent(err.message));
   }

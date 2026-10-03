@@ -1,5 +1,5 @@
 import { query } from '../../config/database.js';
-import { getWeekNumber } from '../utils/formatter.js';
+import { getWeekNumber, parseKasEntries } from '../utils/formatter.js';
 import { getSetting, setSetting } from './messageService.js';
 
 export async function getSaldoSummary() {
@@ -327,14 +327,104 @@ export async function getTestSessionStatus() {
 
   const [txCount] = await query('SELECT COUNT(*) AS total FROM kas_transactions WHERE id > ?', [minTxId]);
   const [mCount] = await query('SELECT COUNT(*) AS total FROM members WHERE id > ?', [minMemberId]);
-  const [sCount] = await query('SELECT COUNT(*) AS total FROM schedules WHERE id > ?', [minScheduleId]);
-
   return {
     active: true,
     startedAt,
     testMembersCount: mCount?.total || 0,
     testTxCount: txCount?.total || 0,
     testSchedulesCount: sCount?.total || 0
+  };
+}
+
+export async function recordBulkKasChecklist({ member_ids, amount, week_number, year, created_by, source = 'web_dashboard' }) {
+  const successList = [];
+  let totalAmount = 0;
+  const numAmount = parseFloat(amount) || 10000;
+  const week = parseInt(week_number, 10) || 1;
+  const yr = parseInt(year, 10) || new Date().getFullYear();
+
+  for (const mId of (member_ids || [])) {
+    const id = parseInt(mId, 10);
+    if (!id) continue;
+    const res = await recordIuranWeekly({
+      member_id: id,
+      week_number: week,
+      year: yr,
+      amount: numAmount,
+      created_by,
+      source
+    });
+    successList.push({
+      member_id: id,
+      name: res.memberName,
+      amount: numAmount
+    });
+    totalAmount += numAmount;
+  }
+
+  return {
+    count: successList.length,
+    totalAmount,
+    week,
+    year: yr,
+    successList
+  };
+}
+
+export async function recordBulkKasText({ raw_text, week_number, year, created_by, source = 'web_dashboard' }) {
+  const entries = parseKasEntries(raw_text || '');
+  const week = parseInt(week_number, 10) || 1;
+  const yr = parseInt(year, 10) || new Date().getFullYear();
+
+  const successList = [];
+  const generalList = [];
+  let totalAmount = 0;
+
+  for (const entry of entries) {
+    if (!entry.amount || entry.amount <= 0) continue;
+
+    const matchResult = await searchMemberFuzzy(entry.name);
+    if (matchResult.status === 'single' || (matchResult.status === 'ambiguous' && matchResult.matches.length > 0)) {
+      const member = matchResult.matches[0];
+      const res = await recordIuranWeekly({
+        member_id: member.id,
+        week_number: week,
+        year: yr,
+        amount: entry.amount,
+        created_by,
+        source
+      });
+      successList.push({
+        member_id: member.id,
+        name: member.name,
+        amount: entry.amount,
+        isTypo: matchResult.type === 'fuzzy'
+      });
+      totalAmount += entry.amount;
+    } else {
+      await addTransaction({
+        type: 'masuk',
+        amount: entry.amount,
+        member_id: null,
+        description: `Kas Masuk - ${entry.name}`,
+        source,
+        created_by
+      });
+      generalList.push({
+        name: entry.name,
+        amount: entry.amount
+      });
+      totalAmount += entry.amount;
+    }
+  }
+
+  return {
+    count: successList.length + generalList.length,
+    totalAmount,
+    week,
+    year: yr,
+    successList,
+    generalList
   };
 }
 
@@ -351,6 +441,8 @@ export default {
   searchMemberFuzzy,
   levenshteinDistance,
   recordIuranWeekly,
+  recordBulkKasChecklist,
+  recordBulkKasText,
   getWeeklyStatus,
   startTestSession,
   resetTestSession,

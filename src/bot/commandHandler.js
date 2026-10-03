@@ -15,76 +15,7 @@ export function hasActiveSession(sessionKey) {
   return true;
 }
 
-function parseAmount(str) {
-  if (!str) return 0;
-  let clean = str.toLowerCase().replace(/rp|\.|\,/g, '').trim();
-  if (clean.endsWith('k') || clean.endsWith('rb')) {
-    clean = clean.replace(/k|rb/g, '');
-    return (parseFloat(clean) || 0) * 1000;
-  }
-  return parseFloat(clean) || 0;
-}
-
-export function parseKasEntries(rawText) {
-  let body = rawText.replace(/^!bot\s+kas\s+masuk\s*/i, '').trim();
-  if (!body) return [];
-
-  let lines = body.split(/\r?\n/).map(l => l.trim()).filter(Boolean);
-
-  if (lines.length === 1 && lines[0].includes(',')) {
-    lines = lines[0].split(',').map(l => l.trim()).filter(Boolean);
-  }
-
-  const entries = [];
-
-  for (let rawLine of lines) {
-    let cleanLine = rawLine
-      .replace(/^[\d]+[\.\)\-\s]+\s*/, '')
-      .replace(/^[\*\-\•\–\—]\s*/, '')
-      .trim();
-
-    if (!cleanLine) continue;
-
-    const tokens = cleanLine.split(/\s+/);
-    let amount = 0;
-    let nameTokens = [];
-    let foundAmount = false;
-
-    const firstAmount = parseAmount(tokens[0]);
-    if (firstAmount > 0 && /\d/.test(tokens[0])) {
-      amount = firstAmount;
-      nameTokens = tokens.slice(1);
-      foundAmount = true;
-    } else {
-      const lastToken = tokens[tokens.length - 1];
-      const lastAmount = parseAmount(lastToken);
-      if (lastAmount > 0 && /\d/.test(lastToken)) {
-        amount = lastAmount;
-        nameTokens = tokens.slice(0, -1);
-        foundAmount = true;
-      } else {
-        for (let i = 0; i < tokens.length; i++) {
-          const val = parseAmount(tokens[i]);
-          if (val > 0 && /\d/.test(tokens[i])) {
-            amount = val;
-            nameTokens = tokens.filter((_, idx) => idx !== i);
-            foundAmount = true;
-            break;
-          }
-        }
-      }
-    }
-
-    let name = nameTokens.join(' ').replace(/\//g, ' ').trim();
-    if (foundAmount && amount > 0 && name) {
-      entries.push({ amount, name, originalLine: rawLine });
-    } else if (cleanLine) {
-      entries.push({ amount: 0, name: cleanLine, originalLine: rawLine });
-    }
-  }
-
-  return entries;
-}
+export const parseKasEntries = formatter.parseKasEntries;
 
 export function parseScheduleLines(rawText) {
   const textWithoutCmd = rawText.replace(/^!bot\s+jadwal\s+tambah\s*/i, '').trim();
