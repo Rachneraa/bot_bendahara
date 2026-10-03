@@ -149,15 +149,43 @@ export async function handleInteractiveChoice(sock, messageInfo, sessionKey) {
   return true;
 }
 
-export async function handleCommand(sock, messageInfo) {
-  const { rawText, fromJid, isGroup, groupJid, senderNumber } = messageInfo;
+export async function handleCommand(sock, messageInfo, isAdmin = false) {
+  const { rawText, fromJid, isGroup, groupJid, senderNumber, senderJid } = messageInfo;
   const reply = async (text, mentions = []) => {
-    await sock.sendMessage(fromJid, { text, mentions }, { quoted: messageInfo.rawMsg });
+    try {
+      await sock.sendMessage(fromJid, { text, mentions }, { quoted: messageInfo.rawMsg });
+    } catch (_) {
+      // Fallback jika quote gagal karena struktur pesan khusus
+      await sock.sendMessage(fromJid, { text, mentions });
+    }
   };
 
   try {
     const args = rawText.trim().split(/\s+/);
     const subCmd = (args[1] || '').toLowerCase();
+
+    // Daftar perintah yang memerlukan otorisasi Admin
+    const adminCommands = new Set([
+      'setgroup', 'delgroup', 'unsetgroup',
+      'settestgroup', 'deltestgroup', 'unsettestgroup',
+      'test'
+    ]);
+
+    const isKasAdmin = subCmd === 'kas' && ['masuk', 'keluar', 'del', 'hapus', 'reset'].includes((args[2] || '').toLowerCase());
+    const isMemberAdmin = subCmd === 'member' && ['tambah', 'add', 'hapus', 'del'].includes((args[2] || '').toLowerCase());
+    const isJadwalAdmin = subCmd === 'jadwal' && ['tambah', 'add', 'hapus', 'del'].includes((args[2] || '').toLowerCase());
+
+    const isRestricted = adminCommands.has(subCmd) || isKasAdmin || isMemberAdmin || isJadwalAdmin;
+
+    if (isRestricted && !isAdmin) {
+      await reply(
+        `⚠️ *AKSES KHUSUS ADMIN*\n\n` +
+        `Perintah \`!bot ${subCmd}\` hanya dapat dijalankan oleh *Admin Grup* atau nomor yang terdaftar di whitelist bot.\n\n` +
+        `📱 _Nomor Anda terdeteksi: \`${senderNumber || senderJid}\`_\n` +
+        `💡 Ketik \`!bot\` untuk melihat perintah publik yang dapat Anda gunakan.`
+      );
+      return;
+    }
 
   switch (subCmd) {
     case '':

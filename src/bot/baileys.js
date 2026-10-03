@@ -33,6 +33,15 @@ export const botState = {
   lastActivePing: null
 };
 
+export const recentMessageLogs = [];
+export function addMessageLog(entry) {
+  recentMessageLogs.unshift({
+    time: new Date().toISOString(),
+    ...entry
+  });
+  if (recentMessageLogs.length > 30) recentMessageLogs.pop();
+}
+
 let isInitializing = false;
 let watchdogInterval = null;
 let lastPingTime = 0;
@@ -339,14 +348,25 @@ export async function initBaileys() {
           }
 
           // Verifikasi hak akses Admin (Admin Grup atau Whitelist)
-          const isAdmin = await isUserAdmin(sock, messageInfo);
-          if (!isAdmin) {
-            console.log(`[WA] Mengabaikan perintah dari non-admin: ${senderNumber} (JID: ${senderJid})`);
-            continue;
+          let isAdmin = false;
+          try {
+            isAdmin = await isUserAdmin(sock, messageInfo);
+          } catch (authErr) {
+            console.error('[AUTH ERROR]', authErr.message);
           }
 
-          // Eksekusi router perintah
-          await handleCommand(sock, messageInfo);
+          addMessageLog({
+            fromJid,
+            isGroup,
+            senderJid,
+            senderNumber,
+            pushName: msg.pushName || null,
+            rawText,
+            isAdmin
+          });
+
+          // Eksekusi router perintah (perintah publik tetap berjalan, perintah admin diproteksi di router)
+          await handleCommand(sock, messageInfo, isAdmin);
         }
       } catch (err) {
         console.error('[WA] Error saat memproses pesan:', err);
@@ -412,5 +432,7 @@ export default {
   forceReconnect,
   requestPairingCodeManual,
   sendGroupNotification,
-  extractMessageText
+  extractMessageText,
+  isSocketOpen,
+  recentMessageLogs
 };

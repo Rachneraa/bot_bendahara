@@ -65,7 +65,13 @@ export async function isUserAdmin(sock, messageInfo) {
       return true;
     }
 
-    // 2. Jika di grup WhatsApp, cek hak admin grup atau cocokkan LID ke nomor asli peserta
+    // 2. Jika di dalam grup testing yang terdaftar, izinkan eksekusi
+    const testGroupJid = await getSetting('test_group_jid', '');
+    if (isGroup && testGroupJid && messageInfo.groupJid === testGroupJid) {
+      return true;
+    }
+
+    // 3. Jika di grup WhatsApp, cek hak admin grup atau cocokkan LID ke nomor asli peserta
     if (isGroup && messageInfo.groupJid) {
       const groupMetadata = await getCachedGroupMetadata(sock, messageInfo.groupJid);
       

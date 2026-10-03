@@ -31,7 +31,11 @@ export function getWeekNumber(d = new Date()) {
 
 export function cleanPhoneNumber(phone) {
   if (!phone) return '';
-  // Buang suffix device WhatsApp Web/Multi-device (:1, :2) dan domain (@s.whatsapp.net, @lid)
+  // Jika LID WhatsApp multi-device, jangan ubah formatnya
+  if (String(phone).includes('@lid')) {
+    return String(phone).split('@')[0].split(':')[0];
+  }
+  // Buang suffix device WhatsApp Web/Multi-device (:1, :2) dan domain (@s.whatsapp.net)
   const base = String(phone).split('@')[0].split(':')[0];
   let cleaned = base.replace(/\D/g, '');
   if (cleaned.startsWith('0')) {

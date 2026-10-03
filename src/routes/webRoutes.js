@@ -7,7 +7,7 @@ import messageService from '../services/messageService.js';
 import formatter from '../utils/formatter.js';
 import fs from 'fs';
 import path from 'path';
-import { botState, requestPairingCodeManual, sendGroupNotification, initBaileys, forceReconnect, isSocketOpen, AUTH_DIR } from '../bot/baileys.js';
+import { botState, requestPairingCodeManual, sendGroupNotification, initBaileys, forceReconnect, isSocketOpen, recentMessageLogs, AUTH_DIR } from '../bot/baileys.js';
 
 const router = express.Router();
 
@@ -70,6 +70,43 @@ router.get('/api/bot/reconnect', async (req, res) => {
   } catch (err) {
     res.status(500).json({ success: false, message: err.message });
   }
+});
+
+// Endpoint Diagnostik Live (untuk inspeksi pesan masuk, whitelist, dan grup)
+router.get('/api/diagnostics', async (req, res) => {
+  const envAdmins = (process.env.ADMIN_NUMBERS || '')
+    .split(',')
+    .map(n => formatter.cleanPhoneNumber(n))
+    .filter(Boolean);
+
+  const dbAdminsStr = await messageService.getSetting('admin_numbers', '');
+  const dbAdmins = dbAdminsStr
+    .split(',')
+    .map(n => formatter.cleanPhoneNumber(n))
+    .filter(Boolean);
+
+  const targetGroup = await messageService.getSetting('target_group_jid', '');
+  const testGroup = await messageService.getSetting('test_group_jid', '');
+
+  res.json({
+    status: 'ok',
+    botState: {
+      status: botState.status,
+      botNumber: botState.botNumber,
+      step: botState.step,
+      wsOpen: isSocketOpen(botState.socket),
+      lastActivePing: botState.lastActivePing,
+      lastError: botState.lastError
+    },
+    config: {
+      envAdmins,
+      dbAdmins,
+      targetGroup,
+      testGroup
+    },
+    recentMessages: recentMessageLogs,
+    timestamp: new Date().toISOString()
+  });
 });
 
 // -------------------------------------------------------------
