@@ -7,7 +7,7 @@ import messageService from '../services/messageService.js';
 import formatter from '../utils/formatter.js';
 import fs from 'fs';
 import path from 'path';
-import { botState, requestPairingCodeManual, sendGroupNotification, initBaileys, forceReconnect, AUTH_DIR } from '../bot/baileys.js';
+import { botState, requestPairingCodeManual, sendGroupNotification, initBaileys, forceReconnect, isSocketOpen, AUTH_DIR } from '../bot/baileys.js';
 
 const router = express.Router();
 
@@ -26,16 +26,25 @@ router.get('/api/health', (req, res) => {
   const enableWA = process.env.ENABLE_WHATSAPP !== 'false';
   let selfHealed = false;
 
-  const wsReady = botState.socket?.ws?.readyState; // 1 = OPEN
-  const isZombie = botState.status === 'connected' && (!botState.socket || wsReady !== 1);
+  const sock = botState.socket;
+  const isWsOpen = isSocketOpen(sock);
+  const isZombie = botState.status === 'connected' && (!sock || !isWsOpen);
   const force = req.query.force === 'true' || req.query.reconnect === 'true';
 
-  // Jika diminta paksa atau socket terdeteksi zombie/terputus padahal kredensial ada
-  if (enableWA && hasCreds && (force || isZombie || (botState.status === 'disconnected' && !botState.socket))) {
-    const reason = force ? 'Manual forced query' : (isZombie ? 'Zombie socket detected' : 'Disconnected recovery');
-    console.log(`[HEALTH] 🩺 Memicu self-healing Baileys (${reason})...`);
-    forceReconnect(reason).catch(e => console.error('[HEALTH] Auto init error:', e));
-    selfHealed = true;
+  if (enableWA && hasCreds) {
+    if (force) {
+      console.log('[HEALTH] 🩺 Memicu force reconnect manual dari query parameter...');
+      forceReconnect('Manual forced query').catch(e => console.error('[HEALTH] Force reconnect error:', e));
+      selfHealed = true;
+    } else if (isZombie) {
+      console.log('[HEALTH] 🩺 Memicu self-healing: Socket zombie terdeteksi...');
+      forceReconnect('Zombie socket detected').catch(e => console.error('[HEALTH] Auto init error:', e));
+      selfHealed = true;
+    } else if (botState.status === 'disconnected' && !sock) {
+      console.log('[HEALTH] 🩺 Memicu rekoneksi bot disconnected...');
+      forceReconnect('Disconnected recovery').catch(e => console.error('[HEALTH] Auto init error:', e));
+      selfHealed = true;
+    }
   }
 
   res.json({
@@ -43,7 +52,7 @@ router.get('/api/health', (req, res) => {
     botStatus: botState.status,
     botNumber: botState.botNumber,
     step: botState.step,
-    wsReadyState: wsReady === 1 ? 'OPEN' : (wsReady === 0 ? 'CONNECTING' : (wsReady === undefined ? 'NONE' : 'CLOSED')),
+    wsOpen: isWsOpen,
     hasCreds,
     enableWA,
     selfHealed,

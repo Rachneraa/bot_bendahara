@@ -97,6 +97,14 @@ export async function forceReconnect(reason = 'Manual/Watchdog Reconnect') {
 }
 
 /**
+ * Cek apakah socket WebSocket Baileys benar-benar berstatus OPEN
+ */
+export function isSocketOpen(sock) {
+  if (!sock || !sock.ws) return false;
+  return sock.ws.isOpen === true || sock.ws.socket?.readyState === 1;
+}
+
+/**
  * Background Watchdog untuk mendeteksi TCP half-open (zombie connection)
  * Menjaga NAT router/cPanel tidak memutus idle socket selama berjam-jam
  */
@@ -109,12 +117,10 @@ function startWatchdog() {
       const sock = botState.socket;
       if (!sock) return;
 
-      const ws = sock.ws;
-      // 0: CONNECTING, 1: OPEN, 2: CLOSING, 3: CLOSED
       if (botState.status === 'connected') {
-        if (!ws || ws.readyState !== 1) {
-          console.warn(`[WATCHDOG] ⚠️ WebSocket tidak dalam status OPEN (readyState: ${ws?.readyState}). Memaksa rekoneksi...`);
-          await forceReconnect('WebSocket readyState not OPEN');
+        if (!isSocketOpen(sock)) {
+          console.warn('[WATCHDOG] ⚠️ WebSocket tidak dalam status OPEN. Memaksa rekoneksi...');
+          await forceReconnect('WebSocket state not OPEN');
           return;
         }
 
