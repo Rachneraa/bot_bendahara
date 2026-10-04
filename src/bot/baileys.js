@@ -192,14 +192,7 @@ export async function initBaileys() {
       },
       browser: ['Ubuntu', 'Chrome', '20.0.04'],
       generateHighQualityLinkPreview: true,
-      syncFullHistory: false,
-      keepAliveIntervalMs: 15_000, // Ping transport TCP level WebSocket (aman dari deteksi bot)
-      connectTimeoutMs: 30_000,
-      defaultQueryTimeoutMs: 30_000,
-      markOnlineOnConnect: true,
-      retryRequestDelayMs: 250,
-      maxMsgRetryCount: 3,
-      getMessage: async () => ({ conversation: 'Bot Bendahara' })
+      syncFullHistory: false
     });
 
     botState.socket = sock;
@@ -207,40 +200,6 @@ export async function initBaileys() {
 
     // Jalankan watchdog heartbeat
     startWatchdog();
-
-    // Logika Pairing Code jika belum login
-    if (!sock.authState.creds.registered) {
-      setTimeout(async () => {
-        try {
-          if (botState.socket !== sock) return; // Abaikan jika socket sudah diganti
-          let targetPhone = await getSetting('bot_phone_number');
-          if (!targetPhone) {
-            targetPhone = process.env.BOT_PHONE_NUMBER || '';
-          }
-
-          if (targetPhone) {
-            const cleaned = cleanPhoneNumber(targetPhone);
-            console.log(`[WA] Meminta Pairing Code untuk nomor: ${cleaned}`);
-            const code = await sock.requestPairingCode(cleaned);
-            botState.pairingCode = code;
-            botState.pairingCodeCreatedAt = Date.now();
-            botState.status = 'waiting_code';
-            botState.botNumber = cleaned;
-
-            console.log('\n=========================================');
-            console.log(`🔑 PAIRING CODE WHATSAPP: ${code}`);
-            console.log('Tautkan di WhatsApp > Perangkat Tertaut > Tautkan dengan nomor telepon');
-            console.log('=========================================\n');
-          } else {
-            console.log('[WA] Belum ada nomor bot terdaftar. Masukkan nomor di Web Dashboard untuk meminta Pairing Code.');
-            botState.status = 'disconnected';
-          }
-        } catch (err) {
-          console.error('[WA] Gagal meminta Pairing Code:', err.message);
-          botState.lastError = err.message;
-        }
-      }, 5000);
-    }
 
     // Event Listener Kredensial
     sock.ev.on('creds.update', saveCreds);
@@ -275,16 +234,7 @@ export async function initBaileys() {
             }
           }, 5000);
         } else {
-          console.log('[WA] Sesi telah logout. Silakan hubungkan ulang nomor bot.');
-          try {
-            fs.rmSync(AUTH_DIR, { recursive: true, force: true });
-            fs.mkdirSync(AUTH_DIR, { recursive: true });
-          } catch (e) {
-            console.error('Gagal reset auth_info:', e);
-          }
-          setTimeout(() => {
-            initBaileys().catch(e => console.error('[WA] Re-init after logout error:', e.message));
-          }, 3000);
+          console.log('[WA] Sesi logout terdeteksi. Silakan hubungkan ulang nomor bot melalui Web Dashboard.');
         }
       } else if (connection === 'open') {
         botState.status = 'connected';
@@ -389,40 +339,20 @@ export async function requestPairingCodeManual(phoneNumber) {
   const cleaned = cleanPhoneNumber(phoneNumber);
   await setSetting('bot_phone_number', cleaned);
 
-  // Jika bot belum terhubung, selalu siapkan socket segar agar pairing keys WhatsApp tidak basi/desync
-  if (!botState.socket?.authState?.creds?.registered || botState.status !== 'connected') {
-    console.log('[WA] 🔄 Menyiapkan socket baru & auth bersih untuk pairing code...');
-    if (botState.socket) {
-      const oldSock = botState.socket;
-      botState.socket = null;
-      destroySocket(oldSock, 'Fresh pairing request');
-    }
-
-    try {
-      if (fs.existsSync(AUTH_DIR)) {
-        const files = fs.readdirSync(AUTH_DIR);
-        for (const file of files) {
-          fs.unlinkSync(path.join(AUTH_DIR, file));
-        }
-      }
-    } catch (e) {
-      console.warn('[WA] Warning clear auth files:', e.message);
-    }
-
+  if (!botState.socket || !isSocketOpen(botState.socket)) {
+    console.log('[WA] Menginisialisasi socket bot untuk pairing...');
     await initBaileys();
-
-    // Tunggu socket WebSocket terbuka sempurna (maks 10 detik)
-    for (let i = 0; i < 25; i++) {
+    for (let i = 0; i < 20; i++) {
       if (botState.socket && isSocketOpen(botState.socket)) break;
       await new Promise(r => setTimeout(r, 400));
     }
   }
 
-  if (!botState.socket || !isSocketOpen(botState.socket)) {
-    throw new Error('Socket bot belum siap atau WebSocket belum terbuka. Silakan coba lagi dalam beberapa detik.');
+  if (!botState.socket) {
+    throw new Error('Socket bot belum siap. Silakan tunggu beberapa detik dan coba lagi.');
   }
 
-  console.log(`[WA] Meminta Pairing Code baru untuk nomor: ${cleaned}`);
+  console.log(`[WA] Meminta Pairing Code untuk nomor: ${cleaned}`);
   const code = await botState.socket.requestPairingCode(cleaned);
   botState.pairingCode = code;
   botState.pairingCodeCreatedAt = Date.now();
