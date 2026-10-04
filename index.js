@@ -1,9 +1,33 @@
 import express from 'express';
 import session from 'express-session';
 import path from 'path';
-// Reload env trigger
+import fs from 'fs';
 import dotenv from 'dotenv';
 import { fileURLToPath } from 'url';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
+// Global Crash & Exception Protection (mencegah Node 22 exit tiba-tiba karena unhandled rejection)
+process.on('uncaughtException', (err) => {
+  console.error('[UNCAUGHT EXCEPTION]', err);
+  try {
+    fs.appendFileSync(path.join(__dirname, 'crash.log'), `[${new Date().toISOString()}] [PID: ${process.pid}] UNCAUGHT: ${err.stack || err}\n`);
+  } catch (_) {}
+});
+
+process.on('unhandledRejection', (reason) => {
+  console.error('[UNHANDLED REJECTION]', reason);
+  try {
+    fs.appendFileSync(path.join(__dirname, 'crash.log'), `[${new Date().toISOString()}] [PID: ${process.pid}] REJECTION: ${reason?.stack || reason}\n`);
+  } catch (_) {}
+});
+
+process.on('exit', (code) => {
+  try {
+    fs.appendFileSync(path.join(__dirname, 'crash.log'), `[${new Date().toISOString()}] [PID: ${process.pid}] EXIT WITH CODE: ${code}\n`);
+  } catch (_) {}
+});
 
 import { initDatabase } from './config/database.js';
 import { initBaileys, botState } from './src/bot/baileys.js';
@@ -11,9 +35,6 @@ import { startScheduler } from './src/services/scheduler.js';
 import webRoutes from './src/routes/webRoutes.js';
 
 dotenv.config();
-
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
 
 const app = express();
 const PORT = process.env.PORT || 3000;
