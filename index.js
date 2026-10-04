@@ -40,6 +40,7 @@ app.use(session({
 }));
 
 // Global template variables
+app.locals.assetVersion = Date.now(); // cache-busting static JS per restart
 app.use((req, res, next) => {
   res.locals.currentPath = req.path;
   next();
