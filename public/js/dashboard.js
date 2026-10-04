@@ -41,18 +41,43 @@ document.addEventListener('DOMContentLoaded', () => {
 
       try {
         btn.disabled = true;
-        btn.innerHTML = 'Meminta Kode...';
+        btn.innerHTML = 'Meminta Kode ke WhatsApp...';
         const res = await fetch('/api/bot/pair', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ phoneNumber: phoneInput.value })
         });
         const data = await res.json();
-        if (data.success) {
-          alert('Pairing code berhasil dibuat! Halaman akan dimuat ulang.');
-          window.location.reload();
+        if (data.success && data.code) {
+          // Tampilkan langsung di dalam modal tanpa perlu reload halaman!
+          const resultBox = document.getElementById('modalPairingResult');
+          const codeEl = document.getElementById('modalCodeDisplay');
+          const secondsEl = document.getElementById('modalSeconds');
+          const copyBtn = document.getElementById('btnModalCopyCode');
+
+          if (resultBox && codeEl) {
+            codeEl.innerText = data.code;
+            resultBox.style.display = 'block';
+
+            if (copyBtn) {
+              copyBtn.onclick = () => window.copyPairingCode(data.code);
+            }
+
+            let timeLeft = 60;
+            if (secondsEl) secondsEl.innerText = timeLeft;
+            if (window._pairingModalInterval) clearInterval(window._pairingModalInterval);
+            window._pairingModalInterval = setInterval(() => {
+              timeLeft--;
+              if (secondsEl) secondsEl.innerText = Math.max(0, timeLeft);
+              if (timeLeft <= 0) {
+                clearInterval(window._pairingModalInterval);
+                const info = document.getElementById('modalCountdown');
+                if (info) info.innerHTML = '<span style="color: var(--accent-rose); font-weight: 700;">⚠️ Kode telah kadaluarsa! Klik tombol Dapatkan Pairing Code lagi.</span>';
+              }
+            }, 1000);
+          }
         } else {
-          alert('Gagal: ' + data.message);
+          alert('Gagal: ' + (data.message || 'Tidak dapat membuat kode pairing.'));
         }
       } catch (err) {
         alert('Terjadi kesalahan: ' + err.message);
@@ -82,7 +107,7 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   };
 
-  // Live Countdown Timer untuk Pairing Code (60 detik)
+  // Live Countdown Timer untuk Pairing Code di Dashboard Card (60 detik)
   const activeBox = document.getElementById('activePairingBox');
   if (activeBox) {
     const createdAt = parseInt(activeBox.getAttribute('data-created-at'), 10) || Date.now();
@@ -103,22 +128,22 @@ document.addEventListener('DOMContentLoaded', () => {
     setInterval(updateTimer, 1000);
   }
 
-  // Polling Status Bot WhatsApp (jika di halaman dashboard)
+  // Polling Status Bot WhatsApp (Hanya reload jika status SUDAH CONNECTED)
   const statusContainer = document.getElementById('waStatusContainer');
   if (statusContainer) {
     setInterval(async () => {
       try {
         const res = await fetch('/api/bot/status');
         const data = await res.json();
-        
-        // Auto refresh jika status berubah dari waiting/disconnected menjadi connected
+
         const currentStatus = statusContainer.getAttribute('data-status');
-        if (currentStatus !== data.status) {
+        // Hanya reload ketika koneksi sukses tersambung (connected)
+        if (data.status === 'connected' && currentStatus !== 'connected') {
           window.location.reload();
         }
       } catch (e) {
         // Silent polling error
       }
-    }, 5000);
+    }, 4000);
   }
 });

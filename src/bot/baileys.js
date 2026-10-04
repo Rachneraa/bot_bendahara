@@ -222,8 +222,10 @@ export async function initBaileys() {
         const shouldReconnect = statusCode !== DisconnectReason.loggedOut;
         botState.status = 'disconnected';
         botState.step = 'disconnected';
-        botState.pairingCode = null;
-        botState.pairingCodeCreatedAt = null;
+        if (!botState.pairingCodeCreatedAt || Date.now() - botState.pairingCodeCreatedAt > 60_000) {
+          botState.pairingCode = null;
+          botState.pairingCodeCreatedAt = null;
+        }
         botState.lastError = `Disconnected (code: ${statusCode}, reason: ${lastDisconnect?.error?.message || 'unknown'})`;
         console.log(`[WA] Koneksi terputus (status: ${statusCode}). Mencoba rekoneksi: ${shouldReconnect}`);
 

@@ -186,11 +186,38 @@
           🧹 Reset Sesi Bersih
         </button>
         <div style="display: flex; gap: 10px;">
-          <button type="button" onclick="closeModal('modalPairing')" class="btn btn-secondary">Batal</button>
-          <button type="submit" class="btn btn-primary">Dapatkan Pairing Code</button>
+          <button type="button" onclick="closeModal('modalPairing')" class="btn btn-secondary">Tutup</button>
+          <button type="submit" class="btn btn-primary" id="btnSubmitPairing">Dapatkan Pairing Code</button>
         </div>
       </div>
     </form>
+
+    <!-- Hasil Pairing Code Langsung di Dalam Modal (Tanpa Reload) -->
+    <div id="modalPairingResult" style="display: none; margin-top: 24px; padding: 18px; background: rgba(0, 0, 0, 0.4); border: 2px solid var(--accent-primary); border-radius: var(--radius-md); text-align: center;">
+      <p style="font-size: 0.88rem; color: var(--text-muted); margin: 0 0 6px 0;">
+        🔑 Masukkan kode ini pada WhatsApp HP Anda:
+      </p>
+      <div id="modalCodeDisplay" style="font-size: 2.4rem; font-weight: 800; letter-spacing: 6px; color: var(--accent-cyan); font-family: monospace; padding: 10px 0; user-select: all;">
+        ---- - ----
+      </div>
+      <div style="margin: 6px 0 12px 0; font-size: 0.88rem;">
+        <span id="modalCountdown" style="color: var(--accent-amber); font-weight: 600;">
+          ⏳ Berlaku: <span id="modalSeconds">60</span> detik
+        </span>
+      </div>
+      <div style="display: flex; justify-content: center; gap: 10px;">
+        <button type="button" id="btnModalCopyCode" class="btn btn-secondary btn-sm" style="font-size: 0.85rem; padding: 6px 14px;">
+          📋 Salin Kode
+        </button>
+      </div>
+      <div style="margin-top: 16px; font-size: 0.8rem; color: var(--text-muted); text-align: left; background: rgba(255,255,255,0.03); padding: 12px 14px; border-radius: 6px; line-height: 1.5;">
+        <strong style="color: var(--text-color);">📱 Langkah Input di HP:</strong><br>
+        1. Buka aplikasi WhatsApp di HP Anda.<br>
+        2. Masuk ke <strong>Perangkat Tertaut</strong> &gt; <strong>Tautkan Perangkat</strong>.<br>
+        3. Ketuk tulisan <strong>Tautkan dengan nomor telepon saja</strong> di bagian bawah layar.<br>
+        4. Masukkan 8 digit kode di atas sebelum hitung mundur habis.
+      </div>
+    </div>
   </div>
 </div>
 
