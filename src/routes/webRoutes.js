@@ -295,7 +295,12 @@ router.post('/api/bot/pair', requireAuth, async (req, res) => {
       return res.status(400).json({ success: false, message: 'Nomor telepon wajib diisi.' });
     }
     const code = await requestPairingCodeManual(phoneNumber);
-    res.json({ success: true, code });
+    res.json({
+      success: true,
+      code,
+      createdAt: botState.pairingCodeCreatedAt,
+      expiresIn: 60
+    });
   } catch (err) {
     res.status(500).json({ success: false, message: err.message });
   }
@@ -324,6 +329,7 @@ router.get('/api/bot/status', requireAuth, async (req, res) => {
   res.json({
     status: botState.status,
     pairingCode: botState.pairingCode,
+    pairingCodeCreatedAt: botState.pairingCodeCreatedAt,
     botNumber: botState.botNumber,
     lastError: botState.lastError,
     isRemote: false

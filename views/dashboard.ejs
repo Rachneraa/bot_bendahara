@@ -57,7 +57,7 @@
 
   <!-- Box Khusus Pairing Code -->
   <% if (botState.pairingCode) { %>
-    <div style="margin-top: 20px;" class="pairing-box">
+    <div style="margin-top: 20px;" class="pairing-box" id="activePairingBox" data-created-at="<%= botState.pairingCodeCreatedAt || 0 %>">
       <div>
         <p style="font-size: 0.85rem; color: var(--text-muted); margin-bottom: 6px;">
           🔑 Masukkan kode ini pada WhatsApp HP Anda:
@@ -65,10 +65,18 @@
         <div class="pairing-code-display" id="pairingCodeVal">
           <%= botState.pairingCode %>
         </div>
+        <div id="pairingTimerInfo" style="margin-top: 6px; font-size: 0.82rem;">
+          <span id="pairingCountdownText" style="color: var(--accent-amber); font-weight: 600;">
+            ⏳ Berlaku: <span id="timerSeconds">60</span> detik
+          </span>
+        </div>
       </div>
-      <div style="display: flex; gap: 10px;">
+      <div style="display: flex; gap: 10px; align-items: center; flex-wrap: wrap;">
         <button onclick="copyPairingCode('<%= botState.pairingCode %>')" class="btn btn-secondary">
           📋 Salin Kode
+        </button>
+        <button onclick="openModal('modalPairing')" class="btn btn-primary btn-sm">
+          🔄 Minta Kode Baru
         </button>
       </div>
     </div>

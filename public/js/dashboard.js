@@ -82,6 +82,27 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   };
 
+  // Live Countdown Timer untuk Pairing Code (60 detik)
+  const activeBox = document.getElementById('activePairingBox');
+  if (activeBox) {
+    const createdAt = parseInt(activeBox.getAttribute('data-created-at'), 10) || Date.now();
+    const countdownEl = document.getElementById('timerSeconds');
+    const timerInfoEl = document.getElementById('pairingTimerInfo');
+
+    const updateTimer = () => {
+      const elapsed = Math.floor((Date.now() - createdAt) / 1000);
+      const remaining = Math.max(0, 60 - elapsed);
+      if (countdownEl) countdownEl.innerText = remaining;
+
+      if (remaining <= 0 && timerInfoEl) {
+        timerInfoEl.innerHTML = `<span style="color: var(--accent-rose); font-weight: 600;">⚠️ Kode pairing ini telah kadaluarsa! Klik <strong>Minta Kode Baru</strong> untuk mendapatkan kode baru.</span>`;
+      }
+    };
+
+    updateTimer();
+    setInterval(updateTimer, 1000);
+  }
+
   // Polling Status Bot WhatsApp (jika di halaman dashboard)
   const statusContainer = document.getElementById('waStatusContainer');
   if (statusContainer) {

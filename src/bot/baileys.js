@@ -1,6 +1,7 @@
 import makeWASocket, {
   useMultiFileAuthState,
   DisconnectReason,
+  fetchLatestWaWebVersion,
   fetchLatestBaileysVersion,
   makeCacheableSignalKeyStore,
   Browsers
@@ -27,6 +28,7 @@ export const botState = {
   status: 'disconnected', // 'disconnected' | 'connecting' | 'waiting_code' | 'connected'
   step: 'idle',
   pairingCode: null,
+  pairingCodeCreatedAt: null,
   botNumber: null,
   lastError: null,
   socket: null,
@@ -165,17 +167,17 @@ export async function initBaileys() {
     const { state, saveCreds } = await useMultiFileAuthState(AUTH_DIR);
 
     botState.step = 'fetching_version';
-    let version = [2, 3000, 1043857760];
+    let version = [2, 3000, 1049236237];
     try {
-      const vPromise = fetchLatestBaileysVersion();
-      const tPromise = new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), 3500));
+      const vPromise = typeof fetchLatestWaWebVersion === 'function' ? fetchLatestWaWebVersion() : fetchLatestBaileysVersion();
+      const tPromise = new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), 5000));
       const res = await Promise.race([vPromise, tPromise]);
       if (res && res.version) version = res.version;
     } catch (e) {
-      console.warn('[WA] Menggunakan fallback Baileys version:', e.message);
+      console.warn('[WA] Menggunakan fallback WhatsApp Web version:', e.message);
     }
 
-    console.log(`[WA] Menggunakan Baileys v${version.join('.')}`);
+    console.log(`[WA] Menggunakan Baileys WhatsApp Web v${version.join('.')}`);
     botState.step = 'creating_socket';
 
     const logger = pino({ level: 'silent' });
@@ -188,7 +190,7 @@ export async function initBaileys() {
         creds: state.creds,
         keys: makeCacheableSignalKeyStore(state.keys, logger)
       },
-      browser: Browsers.ubuntu('Chrome'),
+      browser: ['Ubuntu', 'Chrome', '20.0.04'],
       generateHighQualityLinkPreview: true,
       syncFullHistory: false,
       keepAliveIntervalMs: 15_000, // Ping transport TCP level WebSocket (aman dari deteksi bot)
@@ -221,6 +223,7 @@ export async function initBaileys() {
             console.log(`[WA] Meminta Pairing Code untuk nomor: ${cleaned}`);
             const code = await sock.requestPairingCode(cleaned);
             botState.pairingCode = code;
+            botState.pairingCodeCreatedAt = Date.now();
             botState.status = 'waiting_code';
             botState.botNumber = cleaned;
 
@@ -261,6 +264,7 @@ export async function initBaileys() {
         botState.status = 'disconnected';
         botState.step = 'disconnected';
         botState.pairingCode = null;
+        botState.pairingCodeCreatedAt = null;
         botState.lastError = `Disconnected (code: ${statusCode}, reason: ${lastDisconnect?.error?.message || 'unknown'})`;
         console.log(`[WA] Koneksi terputus (status: ${statusCode}). Mencoba rekoneksi: ${shouldReconnect}`);
 
@@ -286,6 +290,7 @@ export async function initBaileys() {
         botState.status = 'connected';
         botState.step = 'connected';
         botState.pairingCode = null;
+        botState.pairingCodeCreatedAt = null;
         botState.lastError = null;
         botState.botNumber = sock.user?.id ? sock.user.id.split(':')[0] : 'Aktif';
         botState.lastActivePing = new Date().toISOString();
@@ -384,24 +389,43 @@ export async function requestPairingCodeManual(phoneNumber) {
   const cleaned = cleanPhoneNumber(phoneNumber);
   await setSetting('bot_phone_number', cleaned);
 
-  // Jika socket belum ada, terputus, atau sudah closed, siapkan socket baru
-  if (!botState.socket || !isSocketOpen(botState.socket)) {
-    console.log('[WA] Socket tidak dalam status OPEN. Menginisialisasi socket baru untuk request pairing code...');
+  // Jika bot belum terhubung, selalu siapkan socket segar agar pairing keys WhatsApp tidak basi/desync
+  if (!botState.socket?.authState?.creds?.registered || botState.status !== 'connected') {
+    console.log('[WA] 🔄 Menyiapkan socket baru & auth bersih untuk pairing code...');
+    if (botState.socket) {
+      const oldSock = botState.socket;
+      botState.socket = null;
+      destroySocket(oldSock, 'Fresh pairing request');
+    }
+
+    try {
+      if (fs.existsSync(AUTH_DIR)) {
+        const files = fs.readdirSync(AUTH_DIR);
+        for (const file of files) {
+          fs.unlinkSync(path.join(AUTH_DIR, file));
+        }
+      }
+    } catch (e) {
+      console.warn('[WA] Warning clear auth files:', e.message);
+    }
+
     await initBaileys();
-    // Tunggu socket terbentuk dan siap
-    for (let i = 0; i < 10; i++) {
+
+    // Tunggu socket WebSocket terbuka sempurna (maks 10 detik)
+    for (let i = 0; i < 25; i++) {
       if (botState.socket && isSocketOpen(botState.socket)) break;
-      await new Promise(r => setTimeout(r, 500));
+      await new Promise(r => setTimeout(r, 400));
     }
   }
 
-  if (!botState.socket) {
-    throw new Error('Gagal menyiapkan socket bot untuk meminta kode pairing.');
+  if (!botState.socket || !isSocketOpen(botState.socket)) {
+    throw new Error('Socket bot belum siap atau WebSocket belum terbuka. Silakan coba lagi dalam beberapa detik.');
   }
 
-  console.log(`[WA] Meminta Pairing Code untuk nomor: ${cleaned}`);
+  console.log(`[WA] Meminta Pairing Code baru untuk nomor: ${cleaned}`);
   const code = await botState.socket.requestPairingCode(cleaned);
   botState.pairingCode = code;
+  botState.pairingCodeCreatedAt = Date.now();
   botState.status = 'waiting_code';
   botState.botNumber = cleaned;
   return code;
