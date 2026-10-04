@@ -167,7 +167,7 @@ export async function initBaileys() {
     const { state, saveCreds } = await useMultiFileAuthState(AUTH_DIR);
 
     botState.step = 'fetching_version';
-    let version = [2, 3000, 1049236237];
+    let version = [2, 3000, 1049240009];
     try {
       const vPromise = typeof fetchLatestWaWebVersion === 'function' ? fetchLatestWaWebVersion() : fetchLatestBaileysVersion();
       const tPromise = new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), 5000));
@@ -190,9 +190,13 @@ export async function initBaileys() {
         creds: state.creds,
         keys: makeCacheableSignalKeyStore(state.keys, logger)
       },
-      browser: ['Ubuntu', 'Chrome', '20.0.04'],
+      browser: Browsers.ubuntu('Chrome'),
       generateHighQualityLinkPreview: true,
-      syncFullHistory: false
+      syncFullHistory: false,
+      keepAliveIntervalMs: 25_000,
+      connectTimeoutMs: 60_000,
+      defaultQueryTimeoutMs: 60_000,
+      retryRequestDelayMs: 500
     });
 
     botState.socket = sock;
@@ -219,8 +223,6 @@ export async function initBaileys() {
 
       if (connection === 'close') {
         const statusCode = lastDisconnect?.error?.output?.statusCode;
-        const isLoggedOut = statusCode === DisconnectReason.loggedOut || statusCode === 401;
-        const shouldReconnect = !isLoggedOut;
         botState.status = 'disconnected';
         botState.step = 'disconnected';
         if (!botState.pairingCodeCreatedAt || Date.now() - botState.pairingCodeCreatedAt > 60_000) {
@@ -228,30 +230,15 @@ export async function initBaileys() {
           botState.pairingCodeCreatedAt = null;
         }
         botState.lastError = `Disconnected (code: ${statusCode}, reason: ${lastDisconnect?.error?.message || 'unknown'})`;
-        console.log(`[WA] Koneksi terputus (status: ${statusCode}). Mencoba rekoneksi: ${shouldReconnect}`);
+        console.log(`[WA] Koneksi terputus (status: ${statusCode}). Mencoba rekoneksi...`);
 
-        if (shouldReconnect) {
-          setTimeout(() => {
-            if (botState.status === 'disconnected') {
-              initBaileys().catch(e => console.error('[WA] Reconnect error:', e.message));
-            }
-          }, 5000);
-        } else {
-          console.log('[WA] ⚠️ Sesi logout (401). Membersihkan kredensial basi & menyiapkan socket baru...');
-          try {
-            if (fs.existsSync(AUTH_DIR)) {
-              const files = fs.readdirSync(AUTH_DIR);
-              for (const f of files) {
-                fs.unlinkSync(path.join(AUTH_DIR, f));
-              }
-            }
-          } catch (e) {
-            console.error('[WA] Gagal bersihkan auth_info basi:', e.message);
+        // Mencoba reconnect secara berkala tanpa menghapus auth_info sembarangan
+        // Kredensial hanya dihapus bersih jika admin sengaja menekan tombol 'Reset Sesi' di Web Dashboard
+        setTimeout(() => {
+          if (botState.status === 'disconnected') {
+            initBaileys().catch(e => console.error('[WA] Reconnect error:', e.message));
           }
-          setTimeout(() => {
-            initBaileys().catch(e => console.error('[WA] Re-init after logout error:', e.message));
-          }, 3000);
-        }
+        }, 5000);
       } else if (connection === 'open') {
         botState.status = 'connected';
         botState.step = 'connected';

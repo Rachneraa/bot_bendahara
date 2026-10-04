@@ -247,6 +247,34 @@ router.get('/api/bridge/status', verifyBridge, (req, res) => {
   });
 });
 
+router.post('/api/bridge/pair', verifyBridge, async (req, res) => {
+  try {
+    const { phoneNumber } = req.body;
+    const botNum = phoneNumber || (await messageService.getSetting('bot_phone_number')) || process.env.BOT_PHONE_NUMBER;
+    if (!botNum) {
+      return res.status(400).json({ success: false, message: 'Nomor telepon bot belum ditentukan.' });
+    }
+    const code = await requestPairingCodeManual(botNum);
+    res.json({
+      success: true,
+      code,
+      createdAt: botState.pairingCodeCreatedAt,
+      expiresIn: 60
+    });
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+router.post('/api/bridge/reset-session', verifyBridge, async (req, res) => {
+  try {
+    await resetAuthSession();
+    res.json({ success: true, message: 'Sesi WhatsApp berhasil direset.' });
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message });
+  }
+});
+
 router.post('/api/bridge/send', verifyBridge, async (req, res) => {
   try {
     const { targetGroupJid, messageText, mentionAll } = req.body;
