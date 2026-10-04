@@ -2,7 +2,8 @@ import makeWASocket, {
   useMultiFileAuthState,
   DisconnectReason,
   fetchLatestBaileysVersion,
-  makeCacheableSignalKeyStore
+  makeCacheableSignalKeyStore,
+  Browsers
 } from '@whiskeysockets/baileys';
 import pino from 'pino';
 import path from 'path';
@@ -133,18 +134,9 @@ function startWatchdog() {
           return;
         }
 
-        // Setiap 60 detik kirim presence ping untuk menjaga socket TCP NAT tetap hidup
-        const now = Date.now();
-        if (now - lastPingTime >= 60_000) {
-          lastPingTime = now;
-          try {
-            await sock.sendPresenceUpdate('available');
-            botState.lastActivePing = new Date().toISOString();
-          } catch (pingErr) {
-            console.warn('[WATCHDOG] ⚠️ Ping presence gagal! Socket zombie terdeteksi:', pingErr.message);
-            await forceReconnect('Ping presence failed: ' + pingErr.message);
-          }
-        }
+        // Catat waktu aktif. TCP keepalive sudah dijaga otomatis oleh WebSocket transport (keepAliveIntervalMs: 15_000)
+        // Jangan panggil sendPresenceUpdate('available') di interval berkala karena akan memicu deteksi bot WhatsApp (Logout 401).
+        botState.lastActivePing = new Date().toISOString();
       }
     } catch (err) {
       console.error('[WATCHDOG] Error watchdog:', err.message);
@@ -196,15 +188,16 @@ export async function initBaileys() {
         creds: state.creds,
         keys: makeCacheableSignalKeyStore(state.keys, logger)
       },
-      browser: ['Ubuntu', 'Chrome', '20.0.04'],
+      browser: Browsers.ubuntu('Chrome'),
       generateHighQualityLinkPreview: true,
       syncFullHistory: false,
-      keepAliveIntervalMs: 15_000, // Ping frame tiap 15 detik agar koneksi NAT tidak ditutup firewall
+      keepAliveIntervalMs: 15_000, // Ping transport TCP level WebSocket (aman dari deteksi bot)
       connectTimeoutMs: 30_000,
       defaultQueryTimeoutMs: 30_000,
       markOnlineOnConnect: true,
       retryRequestDelayMs: 250,
-      maxMsgRetryCount: 3
+      maxMsgRetryCount: 3,
+      getMessage: async () => ({ conversation: 'Bot Bendahara' })
     });
 
     botState.socket = sock;
@@ -388,16 +381,53 @@ export async function initBaileys() {
  * Meminta pairing code baru berdasarkan nomor yang diinput dari Web Dashboard
  */
 export async function requestPairingCodeManual(phoneNumber) {
-  if (!botState.socket) {
-    throw new Error('Socket bot belum diinisialisasi.');
-  }
   const cleaned = cleanPhoneNumber(phoneNumber);
   await setSetting('bot_phone_number', cleaned);
+
+  // Jika socket belum ada, terputus, atau sudah closed, siapkan socket baru
+  if (!botState.socket || !isSocketOpen(botState.socket)) {
+    console.log('[WA] Socket tidak dalam status OPEN. Menginisialisasi socket baru untuk request pairing code...');
+    await initBaileys();
+    // Tunggu socket terbentuk dan siap
+    for (let i = 0; i < 10; i++) {
+      if (botState.socket && isSocketOpen(botState.socket)) break;
+      await new Promise(r => setTimeout(r, 500));
+    }
+  }
+
+  if (!botState.socket) {
+    throw new Error('Gagal menyiapkan socket bot untuk meminta kode pairing.');
+  }
+
+  console.log(`[WA] Meminta Pairing Code untuk nomor: ${cleaned}`);
   const code = await botState.socket.requestPairingCode(cleaned);
   botState.pairingCode = code;
   botState.status = 'waiting_code';
   botState.botNumber = cleaned;
   return code;
+}
+
+/**
+ * Reset total sesi WhatsApp (menghapus folder auth_info dan membuat socket segar)
+ */
+export async function resetAuthSession() {
+  console.log('[WA] 🧹 Membersihkan sesi WhatsApp (auth_info)...');
+  if (botState.socket) {
+    const oldSock = botState.socket;
+    botState.socket = null;
+    destroySocket(oldSock, 'Manual session reset');
+  }
+  try {
+    fs.rmSync(AUTH_DIR, { recursive: true, force: true });
+    fs.mkdirSync(AUTH_DIR, { recursive: true });
+  } catch (e) {
+    console.error('[WA] Gagal hapus auth_info:', e.message);
+  }
+  botState.status = 'disconnected';
+  botState.step = 'disconnected';
+  botState.pairingCode = null;
+  botState.lastError = 'Sesi telah direset. Silakan minta pairing code baru.';
+  return await initBaileys();
 }
 
 /**
@@ -431,6 +461,7 @@ export default {
   initBaileys,
   forceReconnect,
   requestPairingCodeManual,
+  resetAuthSession,
   sendGroupNotification,
   extractMessageText,
   isSocketOpen,

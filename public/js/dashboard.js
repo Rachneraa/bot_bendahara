@@ -63,6 +63,25 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   }
 
+  // Reset Sesi WhatsApp secara bersih
+  window.handleResetSession = async function() {
+    if (!confirm('Apakah Anda yakin ingin mereset seluruh sesi WhatsApp bot? Tindakan ini akan menghapus sesi lama yang logout / gagal taut.')) {
+      return;
+    }
+    try {
+      const res = await fetch('/api/bot/reset-session', { method: 'POST' });
+      const data = await res.json();
+      if (data.success) {
+        alert(data.message);
+        window.location.reload();
+      } else {
+        alert('Gagal: ' + data.message);
+      }
+    } catch (err) {
+      alert('Terjadi kesalahan: ' + err.message);
+    }
+  };
+
   // Polling Status Bot WhatsApp (jika di halaman dashboard)
   const statusContainer = document.getElementById('waStatusContainer');
   if (statusContainer) {

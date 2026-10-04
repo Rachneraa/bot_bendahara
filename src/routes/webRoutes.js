@@ -7,7 +7,7 @@ import messageService from '../services/messageService.js';
 import formatter from '../utils/formatter.js';
 import fs from 'fs';
 import path from 'path';
-import { botState, requestPairingCodeManual, sendGroupNotification, initBaileys, forceReconnect, isSocketOpen, recentMessageLogs, AUTH_DIR } from '../bot/baileys.js';
+import { botState, requestPairingCodeManual, resetAuthSession, sendGroupNotification, initBaileys, forceReconnect, isSocketOpen, recentMessageLogs, AUTH_DIR } from '../bot/baileys.js';
 
 const router = express.Router();
 
@@ -209,6 +209,16 @@ router.post('/api/bot/pair', requireAuth, async (req, res) => {
     }
     const code = await requestPairingCodeManual(phoneNumber);
     res.json({ success: true, code });
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+// Endpoint reset sesi WhatsApp secara bersih
+router.post('/api/bot/reset-session', requireAuth, async (req, res) => {
+  try {
+    await resetAuthSession();
+    res.json({ success: true, message: 'Sesi WhatsApp berhasil direset bersih. Silakan minta kode pairing baru.' });
   } catch (err) {
     res.status(500).json({ success: false, message: err.message });
   }
