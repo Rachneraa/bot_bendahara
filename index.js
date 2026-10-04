@@ -99,15 +99,15 @@ async function bootstrap() {
     await initBaileys();
     startScheduler();
 
-    // Keepalive ping setiap 2 menit agar Phusion Passenger di cPanel tidak mematikan proses Node.js (idle shutdown)
-    const keepaliveUrl = process.env.PUBLIC_URL || process.env.REMOTE_BOT_URL || `http://127.0.0.1:${PORT}`;
+    // Keepalive ping setiap 1 menit agar Phusion Passenger di cPanel tidak mematikan proses Node.js (idle shutdown)
+    const keepaliveUrl = process.env.PUBLIC_URL || process.env.REMOTE_BOT_URL || 'https://bendahara.riachoune.my.id';
     setInterval(async () => {
       try {
         await fetch(`${keepaliveUrl}/api/health`).catch(() => {});
       } catch (e) {
         // silent
       }
-    }, 120000);
+    }, 60000);
   } else {
     console.log('[WA] 🟡 Mode dev lokal aktif (ENABLE_WHATSAPP=false).');
     console.log('[WA] Socket WhatsApp dinonaktifkan di lokal agar bot utama di server cPanel tidak terputus.');

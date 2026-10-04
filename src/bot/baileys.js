@@ -302,7 +302,7 @@ export async function initBaileys() {
     sock.ev.on('messages.upsert', async (m) => {
       try {
         if (botState.socket !== sock) return;
-        if (m.type !== 'notify') return;
+        if (m.type !== 'notify' && m.type !== 'append') return;
 
         for (const msg of m.messages) {
           if (!msg.message || msg.key.fromMe) continue;
