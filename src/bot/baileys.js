@@ -146,11 +146,57 @@ function startWatchdog() {
   }, 30_000); // Evaluasi tiap 30 detik
 }
 
+const LOCK_FILE = path.join(AUTH_DIR, 'bot.pid');
+
+export function acquireBotLock() {
+  try {
+    if (fs.existsSync(LOCK_FILE)) {
+      const existingPid = parseInt(fs.readFileSync(LOCK_FILE, 'utf-8').trim(), 10);
+      if (existingPid && existingPid !== process.pid) {
+        try {
+          process.kill(existingPid, 0);
+          console.warn(`[WA] ⚠️ Sesi bot Baileys sudah aktif di proses PID: ${existingPid}. Mencegah socket ganda.`);
+          botState.status = 'disconnected';
+          botState.lastError = `Bot sedang aktif di proses PID: ${existingPid}. Matikan proses lama terlebih dahulu agar tidak saling kick/logout.`;
+          return false;
+        } catch (_) {
+          // Process lama sudah mati, boleh ambil alih lock
+        }
+      }
+    }
+    fs.writeFileSync(LOCK_FILE, String(process.pid));
+    return true;
+  } catch (err) {
+    console.warn('[WA] Gagal mengunci bot.pid:', err.message);
+    return true;
+  }
+}
+
+export function releaseBotLock() {
+  try {
+    if (fs.existsSync(LOCK_FILE)) {
+      const existingPid = parseInt(fs.readFileSync(LOCK_FILE, 'utf-8').trim(), 10);
+      if (existingPid === process.pid) {
+        fs.unlinkSync(LOCK_FILE);
+      }
+    }
+  } catch (_) {}
+}
+
+process.on('exit', releaseBotLock);
+process.on('SIGINT', () => { releaseBotLock(); process.exit(0); });
+process.on('SIGTERM', () => { releaseBotLock(); process.exit(0); });
+
 export async function initBaileys() {
   if (isInitializing) {
     console.log('[WA] Inisialisasi Baileys sedang berlangsung...');
     return botState.socket;
   }
+
+  if (!acquireBotLock()) {
+    return null;
+  }
+
   isInitializing = true;
   botState.step = 'starting';
   botState.status = 'connecting';

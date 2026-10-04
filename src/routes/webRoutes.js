@@ -7,6 +7,7 @@ import messageService from '../services/messageService.js';
 import formatter from '../utils/formatter.js';
 import fs from 'fs';
 import path from 'path';
+import { exec } from 'child_process';
 import { botState, requestPairingCodeManual, resetAuthSession, sendGroupNotification, initBaileys, forceReconnect, isSocketOpen, recentMessageLogs, AUTH_DIR } from '../bot/baileys.js';
 
 const router = express.Router();
@@ -273,6 +274,28 @@ router.post('/api/bridge/reset-session', verifyBridge, async (req, res) => {
   } catch (err) {
     res.status(500).json({ success: false, message: err.message });
   }
+});
+
+router.get('/api/bridge/processes', verifyBridge, (req, res) => {
+  exec('ps aux | grep -E "node|npm" | grep -v grep', (err, stdout, stderr) => {
+    res.json({
+      currentPid: process.pid,
+      stdout: stdout || '',
+      stderr: stderr || '',
+      error: err?.message || null
+    });
+  });
+});
+
+router.post('/api/bridge/kill-other-nodes', verifyBridge, (req, res) => {
+  exec(`ps aux | grep node | grep -v "${process.pid}" | grep -v grep | awk '{print $2}' | xargs -r kill -9`, (err, stdout, stderr) => {
+    res.json({
+      message: 'Proses background lain telah dihentikan.',
+      stdout: stdout || '',
+      stderr: stderr || '',
+      error: err?.message || null
+    });
+  });
 });
 
 router.post('/api/bridge/send', verifyBridge, async (req, res) => {
