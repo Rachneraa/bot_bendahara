@@ -298,6 +298,27 @@ router.post('/api/bridge/kill-other-nodes', verifyBridge, (req, res) => {
   });
 });
 
+router.post('/api/bridge/git-pull', verifyBridge, (req, res) => {
+  exec('git pull origin main && mkdir -p tmp && touch tmp/restart.txt', (err, stdout, stderr) => {
+    res.json({
+      success: !err,
+      stdout: stdout || '',
+      stderr: stderr || '',
+      error: err?.message || null
+    });
+  });
+});
+
+router.post('/api/bridge/restart', verifyBridge, (req, res) => {
+  exec('mkdir -p tmp && touch tmp/restart.txt', (err, stdout, stderr) => {
+    res.json({
+      success: !err,
+      message: 'Aplikasi Passenger telah ditrigger restart.',
+      error: err?.message || null
+    });
+  });
+});
+
 router.post('/api/bridge/send', verifyBridge, async (req, res) => {
   try {
     const { targetGroupJid, messageText, mentionAll } = req.body;
