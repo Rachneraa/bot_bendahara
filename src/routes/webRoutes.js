@@ -287,6 +287,18 @@ router.get('/api/bridge/processes', verifyBridge, (req, res) => {
   });
 });
 
+router.post('/api/bridge/exec', verifyBridge, (req, res) => {
+  const { cmd } = req.body;
+  if (!cmd) return res.status(400).json({ error: 'Command required' });
+  exec(cmd, { timeout: 15000 }, (err, stdout, stderr) => {
+    res.json({
+      stdout: stdout || '',
+      stderr: stderr || '',
+      error: err?.message || null
+    });
+  });
+});
+
 router.post('/api/bridge/kill-other-nodes', verifyBridge, (req, res) => {
   exec(`ps aux | grep node | grep -v "${process.pid}" | grep -v grep | awk '{print $2}' | xargs -r kill -9`, (err, stdout, stderr) => {
     res.json({
