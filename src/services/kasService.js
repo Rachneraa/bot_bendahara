@@ -269,6 +269,54 @@ export async function getWeeklyStatus(week_number = null, year = null) {
   };
 }
 
+export async function getMonthlyStatus(month = null, year = null) {
+  const now = new Date();
+  const targetMonth = month ? parseInt(month, 10) : (now.getMonth() + 1);
+  const targetYear = year ? parseInt(year, 10) : now.getFullYear();
+
+  const rows = await query(`
+    SELECT 
+      m.id,
+      m.name,
+      m.phone_number,
+      m.is_active,
+      COALESCE(SUM(kt.amount), 0) AS total_paid,
+      MAX(kt.created_at) AS last_paid_at,
+      CASE WHEN COALESCE(SUM(kt.amount), 0) > 0 THEN 1 ELSE 0 END AS is_paid
+    FROM members m
+    LEFT JOIN kas_transactions kt 
+      ON m.id = kt.member_id 
+      AND kt.type = 'masuk'
+      AND MONTH(kt.created_at) = ? 
+      AND YEAR(kt.created_at) = ?
+    WHERE m.is_active = TRUE
+    GROUP BY m.id, m.name, m.phone_number, m.is_active
+    ORDER BY m.name ASC
+  `, [targetMonth, targetYear]);
+
+  const paidMembers = rows.filter(r => r.is_paid === 1);
+  const unpaidMembers = rows.filter(r => r.is_paid === 0);
+  const totalAmountPaid = paidMembers.reduce((sum, r) => sum + Number(r.total_paid || 0), 0);
+
+  const monthNames = [
+    '', 'Januari', 'Februari', 'Maret', 'April', 'Mei', 'Juni',
+    'Juli', 'Agustus', 'September', 'Oktober', 'November', 'Desember'
+  ];
+
+  return {
+    month: targetMonth,
+    monthName: monthNames[targetMonth] || `Bulan ${targetMonth}`,
+    year: targetYear,
+    totalMembers: rows.length,
+    totalPaid: paidMembers.length,
+    totalUnpaid: unpaidMembers.length,
+    totalAmountPaid,
+    paidMembers,
+    unpaidMembers,
+    all: rows
+  };
+}
+
 export async function startTestSession() {
   const [mRow] = await query('SELECT COALESCE(MAX(id), 0) AS max_m FROM members');
   const [tRow] = await query('SELECT COALESCE(MAX(id), 0) AS max_t FROM kas_transactions');
@@ -444,6 +492,7 @@ export default {
   recordBulkKasChecklist,
   recordBulkKasText,
   getWeeklyStatus,
+  getMonthlyStatus,
   startTestSession,
   resetTestSession,
   getTestSessionStatus

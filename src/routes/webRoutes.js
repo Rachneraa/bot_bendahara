@@ -820,6 +820,18 @@ router.post('/kas/bulk-add', requireAuth, async (req, res) => {
   }
 });
 
+// Endpoint data status kas bulanan (JSON)
+router.get('/api/kas/monthly-status', requireAuth, async (req, res) => {
+  try {
+    const month = req.query.month ? parseInt(req.query.month, 10) : null;
+    const year = req.query.year ? parseInt(req.query.year, 10) : null;
+    const status = await kasService.getMonthlyStatus(month, year);
+    res.json({ success: true, data: status });
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message });
+  }
+});
+
 // -------------------------------------------------------------
 // PANDUAN PENGGUNAAN (GUIDE)
 // -------------------------------------------------------------

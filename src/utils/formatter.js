@@ -126,6 +126,58 @@ export function parseKasEntries(rawText) {
   return entries;
 }
 
+export function parseMonthInput(input) {
+  if (!input) {
+    return new Date().getMonth() + 1; // Default bulan berjalan (1-12)
+  }
+  let clean = String(input).trim().toLowerCase();
+  clean = clean.replace(/^(?:bulan|bln)\s*/i, '').trim();
+
+  const num = parseInt(clean, 10);
+  if (!isNaN(num) && num >= 1 && num <= 12) {
+    return num;
+  }
+
+  const map = {
+    'januari': 1, 'jan': 1, 'january': 1,
+    'februari': 2, 'feb': 2, 'february': 2,
+    'maret': 3, 'mar': 3, 'march': 3,
+    'april': 4, 'apr': 4,
+    'mei': 5, 'may': 5,
+    'juni': 6, 'jun': 6, 'june': 6,
+    'juli': 7, 'jul': 7, 'july': 7,
+    'agustus': 8, 'agt': 8, 'agu': 8, 'august': 8, 'aug': 8,
+    'september': 9, 'sep': 9, 'sept': 9,
+    'oktober': 10, 'okt': 10, 'october': 10, 'oct': 10,
+    'november': 11, 'nov': 11,
+    'desember': 12, 'des': 12, 'december': 12, 'dec': 12,
+    'pertama': 1, 'satu': 1, 'kesatu': 1,
+    'kedua': 2, 'dua': 2,
+    'ketiga': 3, 'tiga': 3,
+    'keempat': 4, 'empat': 4,
+    'kelima': 5, 'lima': 5,
+    'keenam': 6, 'enam': 6,
+    'ketujuh': 7, 'tujuh': 7,
+    'kedelapan': 8, 'delapan': 8,
+    'kesembilan': 9, 'sembilan': 9,
+    'kesepuluh': 10, 'sepuluh': 10,
+    'kesebelas': 11, 'sebelas': 11,
+    'keduabelas': 12, 'dua belas': 12
+  };
+
+  if (map[clean]) {
+    return map[clean];
+  }
+
+  const matchBulan = clean.match(/(?:ke[- ]?)?(\d{1,2})/);
+  if (matchBulan) {
+    const val = parseInt(matchBulan[1], 10);
+    if (val >= 1 && val <= 12) return val;
+  }
+
+  return new Date().getMonth() + 1;
+}
+
 export default {
   formatRupiah,
   formatTime,
@@ -134,5 +186,6 @@ export default {
   cleanPhoneNumber,
   formatDateIndo,
   parseAmount,
-  parseKasEntries
+  parseKasEntries,
+  parseMonthInput
 };

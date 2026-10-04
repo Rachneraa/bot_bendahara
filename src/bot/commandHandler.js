@@ -205,6 +205,10 @@ export async function handleCommand(sock, messageInfo, isAdmin = false) {
 
 *💰 KAS & IURAN*
 • \`!bot kas saldo\` : Lihat total saldo kas & ringkasan.
+• \`!bot kas bulan [1-12]\` : Cek list yang sudah & belum bayar uang kas per bulan.
+  _Contoh: \`!bot kas bulan 1\` atau \`!bot kas bulan oktober\`_
+• \`!bot kas lunas [bulan]\` : List khusus yang sudah bayar di bulan tertentu.
+• \`!bot kas belum [bulan]\` : List khusus yang belum bayar di bulan tertentu.
 • \`!bot kas masuk <nominal> [nama/ket]\` : Catat kas masuk / iuran.
   _Contoh: \`!bot kas masuk 20000 Budi\`_
 • \`!bot kas keluar <nominal> <ket>\` : Catat pengeluaran kas.
@@ -569,7 +573,102 @@ export async function handleCommand(sock, messageInfo, isAdmin = false) {
           mutasiText += `${icon} *${formatter.formatRupiah(t.amount)}*\n   📝 ${t.description}${memberTag}\n\n`;
         });
         await reply(mutasiText.trim());
+      } else if (action === 'bulan' || action === 'bulanan') {
+        const monthInput = args.slice(3).join(' ');
+        const targetMonth = formatter.parseMonthInput(monthInput);
+        const status = await kasService.getMonthlyStatus(targetMonth);
+
+        let outText = `📋 *STATUS UANG KAS BULAN ${status.monthName.toUpperCase()} (${status.year})*\n`;
+        outText += `👥 Total: ${status.totalMembers} | ✅ Lunas: ${status.totalPaid} | ❌ Belum: ${status.totalUnpaid}\n`;
+        outText += `💰 Terkumpul: *${formatter.formatRupiah(status.totalAmountPaid)}*\n\n`;
+
+        outText += `*✅ SUDAH MEMBAYAR (${status.totalPaid}):*\n`;
+        if (status.paidMembers.length === 0) {
+          outText += `_Belum ada yang membayar di bulan ${status.monthName}._\n`;
+        } else {
+          status.paidMembers.forEach((m, idx) => {
+            outText += `${idx + 1}. *${m.name}* — ${formatter.formatRupiah(m.total_paid)}\n`;
+          });
+        }
+
+        outText += `\n*❌ BELUM MEMBAYAR (${status.totalUnpaid}):*\n`;
+        if (status.unpaidMembers.length === 0) {
+          outText += `🎉 _Luar biasa! Seluruh anggota telah lunas di bulan ini._\n`;
+        } else {
+          status.unpaidMembers.forEach((m, idx) => {
+            outText += `${idx + 1}. ${m.name}\n`;
+          });
+        }
+
+        await reply(outText.trim());
+      } else if (action === 'lunas') {
+        const monthInput = args.slice(3).join(' ');
+        const targetMonth = formatter.parseMonthInput(monthInput);
+        const status = await kasService.getMonthlyStatus(targetMonth);
+
+        let outText = `✅ *DAFTAR LUNAS UANG KAS - BULAN ${status.monthName.toUpperCase()} (${status.year})*\n`;
+        outText += `👥 Total: ${status.totalPaid} dari ${status.totalMembers} anggota | 💰 Terkumpul: *${formatter.formatRupiah(status.totalAmountPaid)}*\n\n`;
+
+        if (status.paidMembers.length === 0) {
+          outText += `_Belum ada anggota yang membayar di bulan ${status.monthName}._`;
+        } else {
+          status.paidMembers.forEach((m, idx) => {
+            outText += `${idx + 1}. *${m.name}* — ${formatter.formatRupiah(m.total_paid)}\n`;
+          });
+        }
+
+        await reply(outText.trim());
+      } else if (action === 'belum') {
+        const monthInput = args.slice(3).join(' ');
+        const targetMonth = formatter.parseMonthInput(monthInput);
+        const status = await kasService.getMonthlyStatus(targetMonth);
+
+        let outText = `❌ *DAFTAR BELUM BAYAR UANG KAS - BULAN ${status.monthName.toUpperCase()} (${status.year})*\n`;
+        outText += `👥 Total Belum: ${status.totalUnpaid} dari ${status.totalMembers} anggota\n\n`;
+
+        if (status.unpaidMembers.length === 0) {
+          outText += `🎉 _Semua anggota telah membayar uang kas bulan ${status.monthName}!_`;
+        } else {
+          status.unpaidMembers.forEach((m, idx) => {
+            outText += `${idx + 1}. ${m.name}\n`;
+          });
+        }
+
+        await reply(outText.trim());
       } else if (action === 'status' || action === 'iuran') {
+        const inputParam = args.slice(3).join(' ').trim().toLowerCase();
+        
+        // Cek jika user menyertakan keyword bulan (contoh: !bot kas status bulan 1, !bot kas status oktober)
+        if (inputParam.startsWith('bulan') || /^(jan|feb|mar|apr|mei|jun|jul|agu|agt|sep|okt|nov|des)/i.test(inputParam)) {
+          const targetMonth = formatter.parseMonthInput(inputParam);
+          const status = await kasService.getMonthlyStatus(targetMonth);
+
+          let outText = `📋 *STATUS UANG KAS BULAN ${status.monthName.toUpperCase()} (${status.year})*\n`;
+          outText += `👥 Total: ${status.totalMembers} | ✅ Lunas: ${status.totalPaid} | ❌ Belum: ${status.totalUnpaid}\n`;
+          outText += `💰 Terkumpul: *${formatter.formatRupiah(status.totalAmountPaid)}*\n\n`;
+
+          outText += `*✅ SUDAH MEMBAYAR (${status.totalPaid}):*\n`;
+          if (status.paidMembers.length === 0) {
+            outText += `_Belum ada yang membayar di bulan ${status.monthName}._\n`;
+          } else {
+            status.paidMembers.forEach((m, idx) => {
+              outText += `${idx + 1}. *${m.name}* — ${formatter.formatRupiah(m.total_paid)}\n`;
+            });
+          }
+
+          outText += `\n*❌ BELUM MEMBAYAR (${status.totalUnpaid}):*\n`;
+          if (status.unpaidMembers.length === 0) {
+            outText += `🎉 _Luar biasa! Seluruh anggota telah lunas di bulan ini._\n`;
+          } else {
+            status.unpaidMembers.forEach((m, idx) => {
+              outText += `${idx + 1}. ${m.name}\n`;
+            });
+          }
+
+          await reply(outText.trim());
+          return;
+        }
+
         const targetWeek = args[3] ? parseInt(args[3], 10) : null;
         const status = await kasService.getWeeklyStatus(targetWeek);
 
@@ -596,7 +695,7 @@ export async function handleCommand(sock, messageInfo, isAdmin = false) {
 
         await reply(statusText.trim());
       } else {
-        await reply('❌ Perintah kas tidak dikenali. Pilihan:\n`!bot kas saldo`\n`!bot kas masuk <nominal> [nama]`\n`!bot kas keluar <nominal> <ket>`\n`!bot kas mutasi`\n`!bot kas status [minggu]`');
+        await reply('❌ Perintah kas tidak dikenali. Pilihan:\n`!bot kas saldo`\n`!bot kas bulan [1-12/nama bulan]`\n`!bot kas lunas [bulan]`\n`!bot kas belum [bulan]`\n`!bot kas masuk <nominal> [nama]`\n`!bot kas keluar <nominal> <ket>`\n`!bot kas mutasi`\n`!bot kas status [minggu]`');
       }
       break;
     }
