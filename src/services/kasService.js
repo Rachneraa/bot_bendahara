@@ -344,13 +344,38 @@ export async function setKasStartPeriod(month, year) {
  * paling lama dulu: kelebihan otomatis jadi bayar dimuka bulan berikutnya,
  * dan pembayaran telat otomatis melunasi tunggakan bulan sebelumnya.
  */
-export async function getMonthlyStatus(month = null, year = null) {
+export async function getMonthlyStatus(month = null, year = null, rawInput = '') {
   const now = new Date();
-  const targetMonth = month ? parseInt(month, 10) : (now.getMonth() + 1);
-  const targetYear = year ? parseInt(year, 10) : now.getFullYear();
+  const start = await getKasStartPeriod();
+
+  let targetMonth = month ? parseInt(month, 10) : (now.getMonth() + 1);
+  let targetYear = year ? parseInt(year, 10) : now.getFullYear();
+
+  let isRelativeMonth = false;
+  let relativeIndex = null;
+
+  const cleanInput = String(rawInput || '').trim().toLowerCase();
+  const isNamedMonth = /^(jan|feb|mar|apr|mei|jun|jul|agu|agt|sep|okt|nov|des)/i.test(cleanInput);
+
+  // Jika input berupa nomor urut (contoh: 1, 2) atau teks ordinal (pertama, kedua)
+  // dan kas kelas dimulai di bulan selain Januari (misal Oktober):
+  // Nomor urut 1 berarti Bulan ke-1 Periode Kas (Oktober), 2 = November, dst.
+  if (start.month > 1 && !isNamedMonth && cleanInput) {
+    const numMatch = cleanInput.match(/^(?:bulan\s*)?([1-9]|1[0-2])$/i);
+    const numVal = numMatch 
+      ? parseInt(numMatch[1], 10) 
+      : (/^(pertama|kesatu|satu)/i.test(cleanInput) ? 1 : null);
+
+    if (numVal && numVal >= 1 && numVal < start.month) {
+      const absoluteIdx = periodIndex(start.year, start.month) + (numVal - 1);
+      targetYear = Math.floor(absoluteIdx / 12);
+      targetMonth = (absoluteIdx % 12) + 1;
+      isRelativeMonth = true;
+      relativeIndex = numVal;
+    }
+  }
 
   const target = await getKasTarget();
-  const start = await getKasStartPeriod();
   const startIdx = periodIndex(start.year, start.month);
   const monthIdx = periodIndex(targetYear, targetMonth);
   const monthsBefore = monthIdx - startIdx; // negatif = sebelum periode kas dimulai
@@ -407,9 +432,17 @@ export async function getMonthlyStatus(month = null, year = null) {
   const unpaidMembers = all.filter(r => r.status === 'belum');
   const totalAmountPaid = all.reduce((sum, r) => sum + r.paid_this_month, 0);
 
+  const monthName = MONTH_NAMES[targetMonth] || `Bulan ${targetMonth}`;
+  const monthLabel = isRelativeMonth 
+    ? `${monthName.toUpperCase()} (Bulan ke-${relativeIndex} Kas)` 
+    : monthName.toUpperCase();
+
   return {
     month: targetMonth,
-    monthName: MONTH_NAMES[targetMonth] || `Bulan ${targetMonth}`,
+    monthName,
+    monthLabel,
+    isRelativeMonth,
+    relativeIndex,
     year: targetYear,
     target,
     startPeriod: start,

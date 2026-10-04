@@ -589,9 +589,9 @@ export async function handleCommand(sock, messageInfo, isAdmin = false) {
       } else if (action === 'bulan' || action === 'bulanan') {
         const monthInput = args.slice(3).join(' ');
         const targetMonth = formatter.parseMonthInput(monthInput);
-        const status = await kasService.getMonthlyStatus(targetMonth);
+        const status = await kasService.getMonthlyStatus(targetMonth, null, monthInput);
 
-        let outText = `📋 *STATUS UANG KAS BULAN ${status.monthName.toUpperCase()} (${status.year})*\n`;
+        let outText = `📋 *STATUS UANG KAS BULAN ${status.monthLabel || status.monthName.toUpperCase()} (${status.year})*\n`;
         outText += `👥 Total: ${status.totalMembers} | ✅ Lunas: ${status.totalPaid} | 🟡 Cicil: ${status.totalPartial} | ❌ Belum: ${status.totalUnpaid}\n`;
         outText += `💰 Terkumpul: *${formatter.formatRupiah(status.totalAmountPaid)}*\n\n`;
 
@@ -624,9 +624,9 @@ export async function handleCommand(sock, messageInfo, isAdmin = false) {
       } else if (action === 'lunas') {
         const monthInput = args.slice(3).join(' ');
         const targetMonth = formatter.parseMonthInput(monthInput);
-        const status = await kasService.getMonthlyStatus(targetMonth);
+        const status = await kasService.getMonthlyStatus(targetMonth, null, monthInput);
 
-        let outText = `✅ *DAFTAR LUNAS UANG KAS - BULAN ${status.monthName.toUpperCase()} (${status.year})*\n`;
+        let outText = `✅ *DAFTAR LUNAS UANG KAS - BULAN ${status.monthLabel || status.monthName.toUpperCase()} (${status.year})*\n`;
         outText += `👥 Total: ${status.totalPaid} dari ${status.totalMembers} anggota | 💰 Terkumpul: *${formatter.formatRupiah(status.totalAmountPaid)}*\n\n`;
 
         if (status.paidMembers.length === 0) {
@@ -641,9 +641,9 @@ export async function handleCommand(sock, messageInfo, isAdmin = false) {
       } else if (action === 'cicil' || action === 'nyicil') {
         const monthInput = args.slice(3).join(' ');
         const targetMonth = formatter.parseMonthInput(monthInput);
-        const status = await kasService.getMonthlyStatus(targetMonth);
+        const status = await kasService.getMonthlyStatus(targetMonth, null, monthInput);
 
-        let outText = `🟡 *DAFTAR CICILAN UANG KAS - BULAN ${status.monthName.toUpperCase()} (${status.year})*\n`;
+        let outText = `🟡 *DAFTAR CICILAN UANG KAS - BULAN ${status.monthLabel || status.monthName.toUpperCase()} (${status.year})*\n`;
         outText += `👥 Anggota Menyicil: ${status.totalPartial} orang | Target Kas: *${formatter.formatRupiah(status.target)}*\n\n`;
 
         if (status.partialMembers.length === 0) {
@@ -658,9 +658,9 @@ export async function handleCommand(sock, messageInfo, isAdmin = false) {
       } else if (action === 'belum') {
         const monthInput = args.slice(3).join(' ');
         const targetMonth = formatter.parseMonthInput(monthInput);
-        const status = await kasService.getMonthlyStatus(targetMonth);
+        const status = await kasService.getMonthlyStatus(targetMonth, null, monthInput);
 
-        let outText = `❌ *DAFTAR BELUM BAYAR UANG KAS - BULAN ${status.monthName.toUpperCase()} (${status.year})*\n`;
+        let outText = `❌ *DAFTAR BELUM BAYAR UANG KAS - BULAN ${status.monthLabel || status.monthName.toUpperCase()} (${status.year})*\n`;
         outText += `👥 Total Belum: ${status.totalUnpaid} dari ${status.totalMembers} anggota\n\n`;
 
         if (status.unpaidMembers.length === 0) {
@@ -678,9 +678,9 @@ export async function handleCommand(sock, messageInfo, isAdmin = false) {
         // Cek jika user menyertakan keyword bulan (contoh: !bot kas status bulan 1, !bot kas status oktober)
         if (inputParam.startsWith('bulan') || /^(jan|feb|mar|apr|mei|jun|jul|agu|agt|sep|okt|nov|des)/i.test(inputParam)) {
           const targetMonth = formatter.parseMonthInput(inputParam);
-          const status = await kasService.getMonthlyStatus(targetMonth);
+          const status = await kasService.getMonthlyStatus(targetMonth, null, inputParam);
 
-          let outText = `📋 *STATUS UANG KAS BULAN ${status.monthName.toUpperCase()} (${status.year})*\n`;
+          let outText = `📋 *STATUS UANG KAS BULAN ${status.monthLabel || status.monthName.toUpperCase()} (${status.year})*\n`;
           outText += `👥 Total: ${status.totalMembers} | ✅ Lunas: ${status.totalPaid} | 🟡 Cicil: ${status.totalPartial} | ❌ Belum: ${status.totalUnpaid}\n`;
           outText += `💰 Terkumpul: *${formatter.formatRupiah(status.totalAmountPaid)}*\n\n`;
 
