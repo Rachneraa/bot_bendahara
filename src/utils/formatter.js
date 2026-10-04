@@ -66,7 +66,7 @@ export function parseAmount(str) {
 }
 
 export function parseKasEntries(rawText) {
-  let body = rawText.replace(/^!bot\s+kas\s+masuk\s*/i, '').trim();
+  let body = rawText.replace(/^!bot\s+kas\s+(?:masuk|koreksi|edit|ubah)\s*/i, '').trim();
   if (!body) return [];
 
   let lines = body.split(/\r?\n/).map(l => l.trim()).filter(Boolean);
@@ -91,21 +91,21 @@ export function parseKasEntries(rawText) {
     let foundAmount = false;
 
     const firstAmount = parseAmount(tokens[0]);
-    if (firstAmount > 0 && /\d/.test(tokens[0])) {
+    if ((firstAmount > 0 && /\d/.test(tokens[0])) || /^0+(k|rb)?$/i.test(tokens[0])) {
       amount = firstAmount;
       nameTokens = tokens.slice(1);
       foundAmount = true;
     } else {
       const lastToken = tokens[tokens.length - 1];
       const lastAmount = parseAmount(lastToken);
-      if (lastAmount > 0 && /\d/.test(lastToken)) {
+      if ((lastAmount > 0 && /\d/.test(lastToken)) || /^0+(k|rb)?$/i.test(lastToken)) {
         amount = lastAmount;
         nameTokens = tokens.slice(0, -1);
         foundAmount = true;
       } else {
         for (let i = 0; i < tokens.length; i++) {
           const val = parseAmount(tokens[i]);
-          if (val > 0 && /\d/.test(tokens[i])) {
+          if ((val > 0 && /\d/.test(tokens[i])) || /^0+(k|rb)?$/i.test(tokens[i])) {
             amount = val;
             nameTokens = tokens.filter((_, idx) => idx !== i);
             foundAmount = true;
@@ -116,7 +116,7 @@ export function parseKasEntries(rawText) {
     }
 
     let name = nameTokens.join(' ').replace(/\//g, ' ').trim();
-    if (foundAmount && amount > 0 && name) {
+    if (foundAmount && amount >= 0 && name) {
       entries.push({ amount, name, originalLine: rawLine });
     } else if (cleanLine) {
       entries.push({ amount: 0, name: cleanLine, originalLine: rawLine });

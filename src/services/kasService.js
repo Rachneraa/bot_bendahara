@@ -1,5 +1,5 @@
 import { query } from '../../config/database.js';
-import { getWeekNumber, parseKasEntries } from '../utils/formatter.js';
+import { getWeekNumber, parseKasEntries, formatRupiah } from '../utils/formatter.js';
 import { getSetting, setSetting } from './messageService.js';
 
 export async function getSaldoSummary() {
@@ -258,7 +258,7 @@ export async function getWeeklyStatus(week_number = null, year = null) {
       m.is_active,
       iw.amount,
       iw.paid_at,
-      CASE WHEN iw.id IS NOT NULL THEN 1 ELSE 0 END AS is_paid
+      CASE WHEN iw.id IS NOT NULL AND iw.amount > 0 THEN 1 ELSE 0 END AS is_paid
     FROM members m
     LEFT JOIN iuran_weekly iw 
       ON m.id = iw.member_id 
@@ -386,12 +386,11 @@ export async function getMonthlyStatus(month = null, year = null, rawInput = '')
       m.name,
       m.phone_number,
       m.is_active,
-      COALESCE(SUM(kt.amount), 0) AS paid_total,
-      COALESCE(SUM(CASE WHEN kt.created_at >= ? AND kt.created_at < ? THEN kt.amount ELSE 0 END), 0) AS paid_this_month
+      COALESCE(SUM(CASE WHEN kt.type = 'masuk' THEN kt.amount ELSE -kt.amount END), 0) AS paid_total,
+      COALESCE(SUM(CASE WHEN kt.created_at >= ? AND kt.created_at < ? THEN (CASE WHEN kt.type = 'masuk' THEN kt.amount ELSE -kt.amount END) ELSE 0 END), 0) AS paid_this_month
     FROM members m
     LEFT JOIN kas_transactions kt 
       ON m.id = kt.member_id 
-      AND kt.type = 'masuk'
       AND kt.created_at >= ?
     WHERE m.is_active = TRUE
     GROUP BY m.id, m.name, m.phone_number, m.is_active
@@ -618,6 +617,96 @@ export async function recordBulkKasText({ raw_text, week_number, year, created_b
   };
 }
 
+export async function correctMemberIuran({ member_id, new_amount, week_number = null, year = null, created_by, source = 'bot_wa' }) {
+  const [member] = await query('SELECT id, name FROM members WHERE id = ?', [member_id]);
+  if (!member) throw new Error('Mahasiswa tidak ditemukan');
+
+  const targetYear = year ? parseInt(year, 10) : new Date().getFullYear();
+  let targetWeek = week_number ? parseInt(week_number, 10) : null;
+  if (!targetWeek) {
+    const [row] = await query("SELECT value FROM settings WHERE key_name = 'active_semester_week' LIMIT 1");
+    targetWeek = row && row.value ? parseInt(row.value, 10) : 1;
+  }
+
+  // Hitung total iuran mahasiswa saat ini dari mutasi kas
+  const [sumRow] = await query(`
+    SELECT COALESCE(SUM(CASE WHEN type = 'masuk' THEN amount ELSE -amount END), 0) AS current_paid
+    FROM kas_transactions
+    WHERE member_id = ?
+  `, [member_id]);
+
+  const currentPaid = Number(sumRow?.current_paid || 0);
+  const targetNewAmount = Math.max(0, parseInt(new_amount, 10) || 0);
+  const target = await getKasTarget();
+
+  if (currentPaid === targetNewAmount) {
+    return {
+      unchanged: true,
+      member,
+      oldAmount: currentPaid,
+      newAmount: targetNewAmount,
+      diff: 0,
+      target,
+      isLunas: targetNewAmount >= target,
+      remaining: Math.max(0, target - targetNewAmount)
+    };
+  }
+
+  const diff = targetNewAmount - currentPaid;
+  let txId = null;
+
+  if (diff < 0) {
+    // Pengurangan iuran -> catat transaksi keluar sebagai audit trail
+    txId = await addTransaction({
+      type: 'keluar',
+      amount: Math.abs(diff),
+      member_id,
+      description: `Koreksi iuran kas ${member.name}: penyesuaian nominal (${formatRupiah(currentPaid)} -> ${formatRupiah(targetNewAmount)})`,
+      source,
+      created_by
+    });
+  } else if (diff > 0) {
+    // Penambahan iuran -> catat transaksi masuk
+    txId = await addTransaction({
+      type: 'masuk',
+      amount: diff,
+      member_id,
+      description: `Koreksi iuran kas ${member.name}: penambahan nominal (${formatRupiah(currentPaid)} -> ${formatRupiah(targetNewAmount)})`,
+      source,
+      created_by
+    });
+  }
+
+  // Sinkronkan catatan di iuran_weekly
+  if (targetNewAmount === 0) {
+    await query(`
+      DELETE FROM iuran_weekly 
+      WHERE member_id = ? AND week_number = ? AND year = ?
+    `, [member_id, targetWeek, targetYear]);
+  } else {
+    await query(`
+      INSERT INTO iuran_weekly (member_id, week_number, year, amount, transaction_id)
+      VALUES (?, ?, ?, ?, ?)
+      ON DUPLICATE KEY UPDATE 
+        amount = VALUES(amount),
+        transaction_id = VALUES(transaction_id),
+        paid_at = CURRENT_TIMESTAMP
+    `, [member_id, targetWeek, targetYear, targetNewAmount, txId]);
+  }
+
+  return {
+    unchanged: false,
+    member,
+    oldAmount: currentPaid,
+    newAmount: targetNewAmount,
+    diff,
+    txId,
+    target,
+    isLunas: targetNewAmount >= target,
+    remaining: Math.max(0, target - targetNewAmount)
+  };
+}
+
 export default {
   getSaldoSummary,
   getRecentTransactions,
@@ -633,6 +722,7 @@ export default {
   recordIuranWeekly,
   recordBulkKasChecklist,
   recordBulkKasText,
+  correctMemberIuran,
   getWeeklyStatus,
   getMonthlyStatus,
   getKasTarget,

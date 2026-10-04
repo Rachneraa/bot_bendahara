@@ -17,6 +17,7 @@ export function hasActiveSession(sessionKey) {
 }
 
 export const parseKasEntries = formatter.parseKasEntries;
+export const parseAmount = formatter.parseAmount;
 
 export function parseScheduleLines(rawText) {
   const textWithoutCmd = rawText.replace(/^!bot\s+jadwal\s+tambah\s*/i, '').trim();
@@ -215,6 +216,8 @@ export async function handleCommand(sock, messageInfo, isAdmin = false) {
 • \`!bot kas belum [bulan]\` : List khusus yang belum bayar di bulan tertentu.
 • \`!bot kas masuk <nominal> [nama/ket]\` : Catat kas masuk / iuran.
   _Contoh: \`!bot kas masuk 20000 Budi\`_
+• \`!bot kas koreksi <nama> <nominal>\` : Koreksi/ubah nominal kas anggota jika salah catat.
+  _Contoh: \`!bot kas koreksi kiki 10000\` atau \`!bot kas koreksi kiki 10k\`_
 • \`!bot kas keluar <nominal> <ket>\` : Catat pengeluaran kas.
   _Contoh: \`!bot kas keluar 30000 Beli spidol\`_
 • \`!bot kas mutasi\` : Lihat 10 transaksi terakhir.
@@ -572,6 +575,83 @@ export async function handleCommand(sock, messageInfo, isAdmin = false) {
 
         const summary = await kasService.getSaldoSummary();
         await reply(`✅ *PENGELUARAN KAS DICATAT*\n\n📝 Ket    : *${desc}*\n💸 Jumlah : *${formatter.formatRupiah(nominal)}*\n💎 Saldo Kas Kini: *${formatter.formatRupiah(summary.saldo)}*`);
+      } else if (action === 'koreksi' || action === 'edit' || action === 'ubah') {
+        const rawParams = args.slice(3).join(' ').trim();
+        const entries = formatter.parseKasEntries(rawParams);
+
+        if (entries.length === 0) {
+          await reply(
+            '❌ Format koreksi salah!\n\n' +
+            '*Gunakan:*\n`!bot kas koreksi <nama> <nominal_baru>`\n' +
+            'atau\n`!bot kas koreksi <nominal_baru> <nama>`\n\n' +
+            '*Contoh:*\n' +
+            '• `!bot kas koreksi kiki 10000`\n' +
+            '• `!bot kas koreksi kiki 10k`\n' +
+            '• `!bot kas koreksi 10k kiki`\n' +
+            '• `!bot kas koreksi kiki 0` _(reset ke 0 jika salah catat)_'
+          );
+          return;
+        }
+
+        const entry = entries[0];
+        const matchResult = await kasService.searchMemberFuzzy(entry.name);
+
+        if (matchResult.status === 'not_found' || matchResult.matches.length === 0) {
+          await reply(`❌ Mahasiswa dengan nama "*${entry.name}*" tidak ditemukan. Pastikan nama sesuai data kelas.`);
+          return;
+        }
+
+        if (matchResult.status === 'ambiguous' && matchResult.matches.length > 1) {
+          const candList = matchResult.matches.map((c, i) => `${i + 1}. *${c.name}*`).join('\n');
+          await reply(
+            `⚠️ Ditemukan beberapa nama yang mirip dengan "*${entry.name}*":\n${candList}\n\n` +
+            `Silakan ketik nama lebih spesifik, contoh:\n` +
+            `\`!bot kas koreksi ${matchResult.matches[0].name} ${entry.amount}\``
+          );
+          return;
+        }
+
+        const member = matchResult.matches[0];
+        const activeWeekSetting = await messageService.getSetting('active_semester_week', '1');
+        const targetWeek = parseInt(activeWeekSetting, 10) || 1;
+        const targetYear = new Date().getFullYear();
+
+        const result = await kasService.correctMemberIuran({
+          member_id: member.id,
+          new_amount: entry.amount,
+          week_number: targetWeek,
+          year: targetYear,
+          created_by: senderNumber,
+          source: 'bot_wa'
+        });
+
+        if (result.unchanged) {
+          await reply(`ℹ️ Nominal iuran *${member.name}* sudah bernilai *${formatter.formatRupiah(result.newAmount)}*, tidak ada perubahan.`);
+          return;
+        }
+
+        const summary = await kasService.getSaldoSummary();
+        const diffText = result.diff < 0
+          ? `🔴 Berkurang: -${formatter.formatRupiah(Math.abs(result.diff))}`
+          : `🟢 Bertambah: +${formatter.formatRupiah(result.diff)}`;
+
+        const statusText = result.isLunas
+          ? '🎉 *Lunas*'
+          : (result.newAmount > 0
+              ? `🟡 *Cicilan* (Masuk: ${formatter.formatRupiah(result.newAmount)} / Target ${formatter.formatRupiah(result.target)} — Kurang: *${formatter.formatRupiah(result.remaining)}*)`
+              : '❌ *Belum Bayar*'
+            );
+
+        await reply(
+          `✅ *KOREKSI IURAN KAS BERHASIL*\n\n` +
+          `👤 Mahasiswa : *${member.name}*\n` +
+          `💵 Nominal Lama : ${formatter.formatRupiah(result.oldAmount)}\n` +
+          `💵 Nominal Baru : *${formatter.formatRupiah(result.newAmount)}*\n` +
+          `⚖️ Penyesuaian  : ${diffText}\n` +
+          `📊 Status Iuran : ${statusText}\n` +
+          `📅 Periode      : Minggu ke-${targetWeek} (${targetYear})\n` +
+          `💎 Saldo Kas Kini: *${formatter.formatRupiah(summary.saldo)}*`
+        );
       } else if (action === 'mutasi' || action === 'riwayat') {
         const txs = await kasService.getRecentTransactions(10);
         if (txs.length === 0) {
@@ -739,7 +819,7 @@ export async function handleCommand(sock, messageInfo, isAdmin = false) {
 
         await reply(statusText.trim());
       } else {
-        await reply('❌ Perintah kas tidak dikenali. Pilihan:\n`!bot kas saldo`\n`!bot kas bulan [1-12/nama bulan]`\n`!bot kas lunas [bulan]`\n`!bot kas belum [bulan]`\n`!bot kas masuk <nominal> [nama]`\n`!bot kas keluar <nominal> <ket>`\n`!bot kas mutasi`\n`!bot kas status [minggu]`');
+        await reply('❌ Perintah kas tidak dikenali. Pilihan:\n`!bot kas saldo`\n`!bot kas bulan [1-12/nama bulan]`\n`!bot kas lunas [bulan]`\n`!bot kas cicil [bulan]`\n`!bot kas belum [bulan]`\n`!bot kas masuk <nominal> [nama]`\n`!bot kas koreksi <nama> <nominal>`\n`!bot kas keluar <nominal> <ket>`\n`!bot kas mutasi`\n`!bot kas status [minggu]`');
       }
       break;
     }
