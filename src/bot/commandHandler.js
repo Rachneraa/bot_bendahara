@@ -115,7 +115,7 @@ export async function handleInteractiveChoice(sock, messageInfo, sessionKey) {
   const targetWeek = parseInt(activeWeekSetting, 10) || 1;
   const targetYear = new Date().getFullYear();
 
-  await kasService.recordIuranWeekly({
+  const recRes = await kasService.recordIuranWeekly({
     member_id: selectedMember.id,
     week_number: targetWeek,
     year: targetYear,
@@ -139,9 +139,12 @@ export async function handleInteractiveChoice(sock, messageInfo, sessionKey) {
     );
   } else {
     pendingAmbiguousSessions.delete(sessionKey);
+    const statusNote = recRes.isLunas
+      ? `Lunas Minggu ke-${targetWeek}`
+      : `Cicil (Terkumpul ${formatter.formatRupiah(recRes.totalAccumulated)} / Target ${formatter.formatRupiah(recRes.target)} — Kurang ${formatter.formatRupiah(recRes.remaining)})`;
     await reply(
       `✅ *KONFIRMASI SELESAI!*\n\n` +
-      `Kas untuk *${selectedMember.name}* (${formatter.formatRupiah(currentItem.amount)}) berhasil dicatat (Lunas Minggu ke-${targetWeek}).\n` +
+      `Kas untuk *${selectedMember.name}* (${formatter.formatRupiah(currentItem.amount)}) berhasil dicatat (${statusNote}).\n` +
       `💎 Saldo Kas Kini: *${formatter.formatRupiah(summary.saldo)}*`
     );
   }
@@ -207,7 +210,8 @@ export async function handleCommand(sock, messageInfo, isAdmin = false) {
 • \`!bot kas saldo\` : Lihat total saldo kas & ringkasan.
 • \`!bot kas bulan [1-12]\` : Cek list yang sudah & belum bayar uang kas per bulan.
   _Contoh: \`!bot kas bulan 1\` atau \`!bot kas bulan oktober\`_
-• \`!bot kas lunas [bulan]\` : List khusus yang sudah bayar di bulan tertentu.
+• \`!bot kas lunas [bulan]\` : List khusus yang sudah lunas uang kas.
+• \`!bot kas cicil [bulan]\` : List khusus yang masih nyicil / bayar sebagian.
 • \`!bot kas belum [bulan]\` : List khusus yang belum bayar di bulan tertentu.
 • \`!bot kas masuk <nominal> [nama/ket]\` : Catat kas masuk / iuran.
   _Contoh: \`!bot kas masuk 20000 Budi\`_
@@ -445,7 +449,7 @@ export async function handleCommand(sock, messageInfo, isAdmin = false) {
 
           if (matchResult.status === 'single') {
             const member = matchResult.matches[0];
-            await kasService.recordIuranWeekly({
+            const rec = await kasService.recordIuranWeekly({
               member_id: member.id,
               week_number: targetWeek,
               year: targetYear,
@@ -457,7 +461,11 @@ export async function handleCommand(sock, messageInfo, isAdmin = false) {
               member,
               amount: entry.amount,
               inputName: entry.name,
-              isTypo: matchResult.type === 'fuzzy'
+              isTypo: matchResult.type === 'fuzzy',
+              isLunas: rec.isLunas,
+              totalAccumulated: rec.totalAccumulated,
+              target: rec.target,
+              remaining: rec.remaining
             });
           } else if (matchResult.status === 'ambiguous') {
             ambiguousList.push({
@@ -479,10 +487,14 @@ export async function handleCommand(sock, messageInfo, isAdmin = false) {
         if (entries.length === 1 && successList.length === 1) {
           const s = successList[0];
           const typoNote = s.isTypo ? ` _(Otomatis mencocokkan dari '${s.inputName}')_` : '';
+          const statusText = s.isLunas
+            ? '🎉 *Lunas*'
+            : `🟡 *Cicilan* (Masuk: ${formatter.formatRupiah(s.totalAccumulated)} / Target ${formatter.formatRupiah(s.target)} — Kurang: *${formatter.formatRupiah(s.remaining)}*)`;
           await reply(
-            `✅ *KAS MASUK (IURAN) BERHASIL DICATAT*\n\n` +
+            `✅ *KAS MASUK BERHASIL DICATAT*\n\n` +
             `👤 Anggota: *${s.member.name}*${typoNote}\n` +
             `💵 Jumlah : *${formatter.formatRupiah(s.amount)}*\n` +
+            `📊 Status : ${statusText}\n` +
             `📅 Periode: Minggu ke-${targetWeek} (${targetYear})\n` +
             `💎 Saldo Kas Kini: *${formatter.formatRupiah(summary.saldo)}*`
           );
@@ -502,7 +514,8 @@ export async function handleCommand(sock, messageInfo, isAdmin = false) {
           report += `\n✅ *BERHASIL DICATAT (${successList.length}):*\n`;
           successList.forEach((s, idx) => {
             const typoNote = s.isTypo ? ` _(dari '${s.inputName}')_` : '';
-            report += `${idx + 1}. *${s.member.name}* (${formatter.formatRupiah(s.amount)}) - Lunas Minggu ${targetWeek}${typoNote}\n`;
+            const statusLabel = s.isLunas ? 'Lunas' : `Cicil (Kurang ${formatter.formatRupiah(s.remaining)})`;
+            report += `${idx + 1}. *${s.member.name}* (${formatter.formatRupiah(s.amount)}) - ${statusLabel}${typoNote}\n`;
           });
           report += `💎 Saldo Kas Kini: *${formatter.formatRupiah(summary.saldo)}*\n`;
         }
@@ -579,21 +592,28 @@ export async function handleCommand(sock, messageInfo, isAdmin = false) {
         const status = await kasService.getMonthlyStatus(targetMonth);
 
         let outText = `📋 *STATUS UANG KAS BULAN ${status.monthName.toUpperCase()} (${status.year})*\n`;
-        outText += `👥 Total: ${status.totalMembers} | ✅ Lunas: ${status.totalPaid} | ❌ Belum: ${status.totalUnpaid}\n`;
+        outText += `👥 Total: ${status.totalMembers} | ✅ Lunas: ${status.totalPaid} | 🟡 Cicil: ${status.totalPartial} | ❌ Belum: ${status.totalUnpaid}\n`;
         outText += `💰 Terkumpul: *${formatter.formatRupiah(status.totalAmountPaid)}*\n\n`;
 
-        outText += `*✅ SUDAH MEMBAYAR (${status.totalPaid}):*\n`;
+        outText += `*✅ LUNAS (${status.totalPaid}):*\n`;
         if (status.paidMembers.length === 0) {
-          outText += `_Belum ada yang membayar di bulan ${status.monthName}._\n`;
+          outText += `_Belum ada yang melunasi kas di bulan ${status.monthName}._\n`;
         } else {
           status.paidMembers.forEach((m, idx) => {
-            outText += `${idx + 1}. *${m.name}* — ${formatter.formatRupiah(m.total_paid)}\n`;
+            outText += `${idx + 1}. *${m.name}* — ${formatter.formatRupiah(m.allocated)}\n`;
+          });
+        }
+
+        if (status.partialMembers.length > 0) {
+          outText += `\n*🟡 MENYICIL / SEBAGIAN (${status.totalPartial}):*\n`;
+          status.partialMembers.forEach((m, idx) => {
+            outText += `${idx + 1}. *${m.name}* — Masuk: ${formatter.formatRupiah(m.allocated)} (Kurang: *${formatter.formatRupiah(m.remaining)}*)\n`;
           });
         }
 
         outText += `\n*❌ BELUM MEMBAYAR (${status.totalUnpaid}):*\n`;
         if (status.unpaidMembers.length === 0) {
-          outText += `🎉 _Luar biasa! Seluruh anggota telah lunas di bulan ini._\n`;
+          outText += `🎉 _Luar biasa! Tidak ada tunggakan di bulan ini._\n`;
         } else {
           status.unpaidMembers.forEach((m, idx) => {
             outText += `${idx + 1}. ${m.name}\n`;
@@ -610,10 +630,27 @@ export async function handleCommand(sock, messageInfo, isAdmin = false) {
         outText += `👥 Total: ${status.totalPaid} dari ${status.totalMembers} anggota | 💰 Terkumpul: *${formatter.formatRupiah(status.totalAmountPaid)}*\n\n`;
 
         if (status.paidMembers.length === 0) {
-          outText += `_Belum ada anggota yang membayar di bulan ${status.monthName}._`;
+          outText += `_Belum ada anggota yang melunasi uang kas di bulan ${status.monthName}._`;
         } else {
           status.paidMembers.forEach((m, idx) => {
-            outText += `${idx + 1}. *${m.name}* — ${formatter.formatRupiah(m.total_paid)}\n`;
+            outText += `${idx + 1}. *${m.name}* — ${formatter.formatRupiah(m.allocated)}\n`;
+          });
+        }
+
+        await reply(outText.trim());
+      } else if (action === 'cicil' || action === 'nyicil') {
+        const monthInput = args.slice(3).join(' ');
+        const targetMonth = formatter.parseMonthInput(monthInput);
+        const status = await kasService.getMonthlyStatus(targetMonth);
+
+        let outText = `🟡 *DAFTAR CICILAN UANG KAS - BULAN ${status.monthName.toUpperCase()} (${status.year})*\n`;
+        outText += `👥 Anggota Menyicil: ${status.totalPartial} orang | Target Kas: *${formatter.formatRupiah(status.target)}*\n\n`;
+
+        if (status.partialMembers.length === 0) {
+          outText += `🎉 _Tidak ada anggota yang berstatus cicilan di bulan ${status.monthName}._`;
+        } else {
+          status.partialMembers.forEach((m, idx) => {
+            outText += `${idx + 1}. *${m.name}*\n   💵 Masuk : ${formatter.formatRupiah(m.allocated)}\n   ⚠️ Kurang: *${formatter.formatRupiah(m.remaining)}*\n\n`;
           });
         }
 
@@ -644,15 +681,22 @@ export async function handleCommand(sock, messageInfo, isAdmin = false) {
           const status = await kasService.getMonthlyStatus(targetMonth);
 
           let outText = `📋 *STATUS UANG KAS BULAN ${status.monthName.toUpperCase()} (${status.year})*\n`;
-          outText += `👥 Total: ${status.totalMembers} | ✅ Lunas: ${status.totalPaid} | ❌ Belum: ${status.totalUnpaid}\n`;
+          outText += `👥 Total: ${status.totalMembers} | ✅ Lunas: ${status.totalPaid} | 🟡 Cicil: ${status.totalPartial} | ❌ Belum: ${status.totalUnpaid}\n`;
           outText += `💰 Terkumpul: *${formatter.formatRupiah(status.totalAmountPaid)}*\n\n`;
 
-          outText += `*✅ SUDAH MEMBAYAR (${status.totalPaid}):*\n`;
+          outText += `*✅ LUNAS (${status.totalPaid}):*\n`;
           if (status.paidMembers.length === 0) {
-            outText += `_Belum ada yang membayar di bulan ${status.monthName}._\n`;
+            outText += `_Belum ada yang melunasi kas di bulan ${status.monthName}._\n`;
           } else {
             status.paidMembers.forEach((m, idx) => {
-              outText += `${idx + 1}. *${m.name}* — ${formatter.formatRupiah(m.total_paid)}\n`;
+              outText += `${idx + 1}. *${m.name}* — ${formatter.formatRupiah(m.allocated)}\n`;
+            });
+          }
+
+          if (status.partialMembers.length > 0) {
+            outText += `\n*🟡 MENYICIL / SEBAGIAN (${status.totalPartial}):*\n`;
+            status.partialMembers.forEach((m, idx) => {
+              outText += `${idx + 1}. *${m.name}* — Masuk: ${formatter.formatRupiah(m.allocated)} (Kurang: *${formatter.formatRupiah(m.remaining)}*)\n`;
             });
           }
 

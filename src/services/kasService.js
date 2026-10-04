@@ -220,12 +220,26 @@ export async function recordIuranWeekly({ member_id, week_number, year, amount, 
     INSERT INTO iuran_weekly (member_id, week_number, year, amount, transaction_id)
     VALUES (?, ?, ?, ?, ?)
     ON DUPLICATE KEY UPDATE 
-      amount = VALUES(amount),
+      amount = amount + VALUES(amount), -- cicilan di minggu yang sama dijumlahkan, bukan ditimpa
       transaction_id = VALUES(transaction_id),
       paid_at = CURRENT_TIMESTAMP
   `, [member_id, week_number, year, amount, txId]);
 
-  return { txId, memberName };
+  const [iwRow] = await query(
+    'SELECT amount FROM iuran_weekly WHERE member_id = ? AND week_number = ? AND year = ?',
+    [member_id, week_number, year]
+  );
+  const totalAccumulated = Number(iwRow?.amount || amount);
+  const target = await getKasTarget();
+
+  return {
+    txId,
+    memberName,
+    totalAccumulated,
+    target,
+    isLunas: totalAccumulated >= target,
+    remaining: Math.max(0, target - totalAccumulated)
+  };
 }
 
 export async function getWeeklyStatus(week_number = null, year = null) {
@@ -269,10 +283,77 @@ export async function getWeeklyStatus(week_number = null, year = null) {
   };
 }
 
+const MONTH_NAMES = [
+  '', 'Januari', 'Februari', 'Maret', 'April', 'Mei', 'Juni',
+  'Juli', 'Agustus', 'September', 'Oktober', 'November', 'Desember'
+];
+const DEFAULT_KAS_TARGET = 10000;
+
+// Indeks bulan absolut (tahun*12 + bulan) agar mudah menghitung selisih bulan lintas tahun
+function periodIndex(year, month) {
+  return year * 12 + (month - 1);
+}
+
+function periodStartSql(idx) {
+  const y = Math.floor(idx / 12);
+  const m = (idx % 12) + 1;
+  return `${y}-${String(m).padStart(2, '0')}-01 00:00:00`;
+}
+
+export async function getKasTarget() {
+  const v = parseInt(await getSetting('kas_monthly_target', String(DEFAULT_KAS_TARGET)), 10);
+  return v > 0 ? v : DEFAULT_KAS_TARGET;
+}
+
+export async function setKasTarget(amount) {
+  const v = parseInt(amount, 10);
+  if (!v || v <= 0) throw new Error('Nominal target kas tidak valid.');
+  await setSetting('kas_monthly_target', String(v));
+  return v;
+}
+
+/**
+ * Bulan pertama kewajiban kas. Default: bulan pembayaran kas anggota paling awal.
+ */
+export async function getKasStartPeriod() {
+  const saved = await getSetting('kas_start_period', '');
+  const match = /^(\d{4})-(\d{2})$/.exec(saved || '');
+  if (match) {
+    return { year: parseInt(match[1], 10), month: parseInt(match[2], 10), isDefault: false };
+  }
+  const [row] = await query(
+    "SELECT MIN(created_at) AS first_at FROM kas_transactions WHERE type = 'masuk' AND member_id IS NOT NULL"
+  );
+  const d = row?.first_at ? new Date(row.first_at) : new Date();
+  return { year: d.getFullYear(), month: d.getMonth() + 1, isDefault: true };
+}
+
+export async function setKasStartPeriod(month, year) {
+  const m = parseInt(month, 10);
+  const y = parseInt(year, 10);
+  if (!m || m < 1 || m > 12 || !y || y < 2000 || y > 2100) {
+    throw new Error('Bulan/tahun mulai kas tidak valid.');
+  }
+  await setSetting('kas_start_period', `${y}-${String(m).padStart(2, '0')}`);
+  return { year: y, month: m };
+}
+
+/**
+ * Status kas bulanan dengan dukungan cicilan.
+ * Semua pembayaran anggota (sejak bulan mulai) dijumlahkan lalu dialokasikan ke bulan
+ * paling lama dulu: kelebihan otomatis jadi bayar dimuka bulan berikutnya,
+ * dan pembayaran telat otomatis melunasi tunggakan bulan sebelumnya.
+ */
 export async function getMonthlyStatus(month = null, year = null) {
   const now = new Date();
   const targetMonth = month ? parseInt(month, 10) : (now.getMonth() + 1);
   const targetYear = year ? parseInt(year, 10) : now.getFullYear();
+
+  const target = await getKasTarget();
+  const start = await getKasStartPeriod();
+  const startIdx = periodIndex(start.year, start.month);
+  const monthIdx = periodIndex(targetYear, targetMonth);
+  const monthsBefore = monthIdx - startIdx; // negatif = sebelum periode kas dimulai
 
   const rows = await query(`
     SELECT 
@@ -280,40 +361,68 @@ export async function getMonthlyStatus(month = null, year = null) {
       m.name,
       m.phone_number,
       m.is_active,
-      COALESCE(SUM(kt.amount), 0) AS total_paid,
-      MAX(kt.created_at) AS last_paid_at,
-      CASE WHEN COALESCE(SUM(kt.amount), 0) > 0 THEN 1 ELSE 0 END AS is_paid
+      COALESCE(SUM(kt.amount), 0) AS paid_total,
+      COALESCE(SUM(CASE WHEN kt.created_at >= ? AND kt.created_at < ? THEN kt.amount ELSE 0 END), 0) AS paid_this_month
     FROM members m
     LEFT JOIN kas_transactions kt 
       ON m.id = kt.member_id 
       AND kt.type = 'masuk'
-      AND MONTH(kt.created_at) = ? 
-      AND YEAR(kt.created_at) = ?
+      AND kt.created_at >= ?
     WHERE m.is_active = TRUE
     GROUP BY m.id, m.name, m.phone_number, m.is_active
     ORDER BY m.name ASC
-  `, [targetMonth, targetYear]);
+  `, [periodStartSql(monthIdx), periodStartSql(monthIdx + 1), periodStartSql(startIdx)]);
 
-  const paidMembers = rows.filter(r => r.is_paid === 1);
-  const unpaidMembers = rows.filter(r => r.is_paid === 0);
-  const totalAmountPaid = paidMembers.reduce((sum, r) => sum + Number(r.total_paid || 0), 0);
+  const all = rows.map((r) => {
+    const paidTotal = Number(r.paid_total || 0);
+    const paidThisMonth = Number(r.paid_this_month || 0);
+    let allocated = 0;
+    let credit = 0;
+    let arrears = 0;
 
-  const monthNames = [
-    '', 'Januari', 'Februari', 'Maret', 'April', 'Mei', 'Juni',
-    'Juli', 'Agustus', 'September', 'Oktober', 'November', 'Desember'
-  ];
+    if (monthsBefore >= 0) {
+      const owedBefore = target * monthsBefore;
+      allocated = Math.min(target, Math.max(0, paidTotal - owedBefore));
+      credit = Math.max(0, paidTotal - owedBefore - target);
+      arrears = Math.max(0, owedBefore - paidTotal);
+    }
+
+    const status = allocated >= target ? 'lunas' : (allocated > 0 ? 'cicil' : 'belum');
+    return {
+      ...r,
+      paid_total: paidTotal,
+      paid_this_month: paidThisMonth,
+      total_paid: paidThisMonth,
+      allocated,
+      remaining: target - allocated,
+      credit,
+      arrears,
+      status,
+      is_paid: status === 'lunas' ? 1 : 0
+    };
+  });
+
+  const paidMembers = all.filter(r => r.status === 'lunas');
+  const partialMembers = all.filter(r => r.status === 'cicil');
+  const unpaidMembers = all.filter(r => r.status === 'belum');
+  const totalAmountPaid = all.reduce((sum, r) => sum + r.paid_this_month, 0);
 
   return {
     month: targetMonth,
-    monthName: monthNames[targetMonth] || `Bulan ${targetMonth}`,
+    monthName: MONTH_NAMES[targetMonth] || `Bulan ${targetMonth}`,
     year: targetYear,
-    totalMembers: rows.length,
+    target,
+    startPeriod: start,
+    beforeStart: monthsBefore < 0,
+    totalMembers: all.length,
     totalPaid: paidMembers.length,
+    totalPartial: partialMembers.length,
     totalUnpaid: unpaidMembers.length,
     totalAmountPaid,
     paidMembers,
+    partialMembers,
     unpaidMembers,
-    all: rows
+    all
   };
 }
 
@@ -493,6 +602,10 @@ export default {
   recordBulkKasText,
   getWeeklyStatus,
   getMonthlyStatus,
+  getKasTarget,
+  setKasTarget,
+  getKasStartPeriod,
+  setKasStartPeriod,
   startTestSession,
   resetTestSession,
   getTestSessionStatus
