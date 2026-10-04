@@ -128,6 +128,25 @@ document.addEventListener('DOMContentLoaded', () => {
     setInterval(updateTimer, 1000);
   }
 
+  // Tab Switcher Metode Pairing (Code vs QR)
+  window.switchPairMethod = function(method) {
+    const paneCode = document.getElementById('panePairCode');
+    const paneQR = document.getElementById('panePairQR');
+    const btnCode = document.getElementById('tabBtnPairCode');
+    const btnQR = document.getElementById('tabBtnPairQR');
+    if (method === 'qr') {
+      if (paneCode) paneCode.style.display = 'none';
+      if (paneQR) paneQR.style.display = 'block';
+      if (btnCode) btnCode.className = 'btn btn-secondary btn-sm';
+      if (btnQR) btnQR.className = 'btn btn-primary btn-sm';
+    } else {
+      if (paneCode) paneCode.style.display = 'block';
+      if (paneQR) paneQR.style.display = 'none';
+      if (btnCode) btnCode.className = 'btn btn-primary btn-sm';
+      if (btnQR) btnQR.className = 'btn btn-secondary btn-sm';
+    }
+  };
+
   // Polling Status Bot WhatsApp (Hanya reload jika status SUDAH CONNECTED)
   const statusContainer = document.getElementById('waStatusContainer');
   if (statusContainer) {
@@ -135,6 +154,19 @@ document.addEventListener('DOMContentLoaded', () => {
       try {
         const res = await fetch('/api/bot/status');
         const data = await res.json();
+
+        // Update QR Code secara live jika tersedia
+        const qrImg = document.getElementById('qrImageTag');
+        const qrContainer = document.getElementById('qrContainer');
+        const qrLoading = document.getElementById('qrLoadingText');
+        if (data.qr && qrImg) {
+          const newSrc = 'https://api.qrserver.com/v1/create-qr-code/?size=240x240&data=' + encodeURIComponent(data.qr);
+          if (qrImg.src !== newSrc) {
+            qrImg.src = newSrc;
+          }
+          if (qrContainer) qrContainer.style.display = 'block';
+          if (qrLoading) qrLoading.style.display = 'none';
+        }
 
         const currentStatus = statusContainer.getAttribute('data-status');
         // Hanya reload ketika koneksi sukses tersambung (connected)

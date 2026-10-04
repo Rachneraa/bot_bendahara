@@ -168,54 +168,86 @@
   <% } %>
 </div>
 
-<!-- Modal Minta Pairing Code Baru -->
+<!-- Modal Minta Pairing Code / QR Code -->
 <div class="modal-overlay" id="modalPairing">
-  <div class="modal-content">
+  <div class="modal-content" style="max-width: 520px;">
     <div class="card-header">
-      <h3 class="card-title">Hubungkan Akun WhatsApp</h3>
+      <h3 class="card-title">Hubungkan Akun WhatsApp Bot</h3>
       <button onclick="closeModal('modalPairing')" style="background: none; border: none; color: var(--text-muted); cursor: pointer; font-size: 1.2rem;">✕</button>
     </div>
-    <form id="formPairingCode">
-      <div class="form-group">
-        <label for="pairingPhone">Nomor WhatsApp Bot (Format: 628xxxx)</label>
-        <input type="text" id="pairingPhone" name="phoneNumber" placeholder="Contoh: 6281234567890" value="<%= botState.botNumber || '' %>" required>
-        <small style="color: var(--text-dim); margin-top: 4px;">Pastikan diawali kode negara 62 tanpa spasi atau strip.</small>
-      </div>
-      <div style="display: flex; justify-content: space-between; align-items: center; gap: 10px; margin-top: 24px; flex-wrap: wrap;">
-        <button type="button" onclick="handleResetSession()" class="btn btn-secondary btn-sm" style="color: var(--accent-rose); border-color: rgba(244,63,94,0.3);" title="Hapus sesi lama yang logout / gagal taut">
-          🧹 Reset Sesi Bersih
-        </button>
-        <div style="display: flex; gap: 10px;">
-          <button type="button" onclick="closeModal('modalPairing')" class="btn btn-secondary">Tutup</button>
-          <button type="submit" class="btn btn-primary" id="btnSubmitPairing">Dapatkan Pairing Code</button>
+
+    <!-- Tab Pilihan Metode Tautkan -->
+    <div style="display: flex; gap: 8px; margin-bottom: 20px; border-bottom: 1px solid var(--border-color); padding-bottom: 12px;">
+      <button type="button" id="tabBtnPairCode" onclick="switchPairMethod('code')" class="btn btn-primary btn-sm" style="flex: 1;">
+        🔢 Opsi 1: Kode Telepon (8 Digit)
+      </button>
+      <button type="button" id="tabBtnPairQR" onclick="switchPairMethod('qr')" class="btn btn-secondary btn-sm" style="flex: 1;">
+        📷 Opsi 2: Scan QR Code
+      </button>
+    </div>
+
+    <!-- PANE 1: PAIRING CODE NOMOR TELEPON -->
+    <div id="panePairCode">
+      <form id="formPairingCode">
+        <div class="form-group">
+          <label for="pairingPhone">Nomor WhatsApp Bot (Format: 628xxxx)</label>
+          <input type="text" id="pairingPhone" name="phoneNumber" placeholder="Contoh: 6281234567890" value="<%= botState.botNumber || '' %>" required>
+          <small style="color: var(--text-dim); margin-top: 4px;">Pastikan diawali kode negara 62 tanpa spasi atau strip.</small>
+        </div>
+        <div style="display: flex; justify-content: space-between; align-items: center; gap: 10px; margin-top: 24px; flex-wrap: wrap;">
+          <button type="button" onclick="handleResetSession()" class="btn btn-secondary btn-sm" style="color: var(--accent-rose); border-color: rgba(244,63,94,0.3);" title="Hapus sesi lama yang logout / gagal taut">
+            🧹 Reset Sesi Bersih
+          </button>
+          <div style="display: flex; gap: 10px;">
+            <button type="button" onclick="closeModal('modalPairing')" class="btn btn-secondary">Tutup</button>
+            <button type="submit" class="btn btn-primary" id="btnSubmitPairing">Dapatkan Pairing Code</button>
+          </div>
+        </div>
+      </form>
+
+      <!-- Hasil Pairing Code Langsung di Dalam Modal (Tanpa Reload) -->
+      <div id="modalPairingResult" style="display: none; margin-top: 20px; padding: 18px; background: rgba(0, 0, 0, 0.4); border: 2px solid var(--accent-primary); border-radius: var(--radius-md); text-align: center;">
+        <p style="font-size: 0.88rem; color: var(--text-muted); margin: 0 0 6px 0;">
+          🔑 Masukkan kode ini pada WhatsApp HP Anda:
+        </p>
+        <div id="modalCodeDisplay" style="font-size: 2.4rem; font-weight: 800; letter-spacing: 6px; color: var(--accent-cyan); font-family: monospace; padding: 10px 0; user-select: all;">
+          ---- - ----
+        </div>
+        <div style="margin: 6px 0 12px 0; font-size: 0.88rem;">
+          <span id="modalCountdown" style="color: var(--accent-amber); font-weight: 600;">
+            ⏳ Berlaku: <span id="modalSeconds">60</span> detik
+          </span>
+        </div>
+        <div style="display: flex; justify-content: center; gap: 10px;">
+          <button type="button" id="btnModalCopyCode" class="btn btn-secondary btn-sm" style="font-size: 0.85rem; padding: 6px 14px;">
+            📋 Salin Kode
+          </button>
+        </div>
+        <div style="margin-top: 16px; font-size: 0.8rem; color: var(--text-muted); text-align: left; background: rgba(255,255,255,0.03); padding: 12px 14px; border-radius: 6px; line-height: 1.5;">
+          <strong style="color: var(--text-color);">📱 Langkah Input di HP:</strong><br>
+          1. Buka aplikasi WhatsApp di HP Anda.<br>
+          2. Masuk ke <strong>Perangkat Tertaut</strong> &gt; <strong>Tautkan Perangkat</strong>.<br>
+          3. Ketuk tulisan <strong>Tautkan dengan nomor telepon saja</strong> di bagian bawah layar.<br>
+          4. Masukkan 8 digit kode di atas sebelum hitung mundur habis.
         </div>
       </div>
-    </form>
+    </div>
 
-    <!-- Hasil Pairing Code Langsung di Dalam Modal (Tanpa Reload) -->
-    <div id="modalPairingResult" style="display: none; margin-top: 24px; padding: 18px; background: rgba(0, 0, 0, 0.4); border: 2px solid var(--accent-primary); border-radius: var(--radius-md); text-align: center;">
-      <p style="font-size: 0.88rem; color: var(--text-muted); margin: 0 0 6px 0;">
-        🔑 Masukkan kode ini pada WhatsApp HP Anda:
+    <!-- PANE 2: SCAN QR CODE -->
+    <div id="panePairQR" style="display: none; text-align: center; padding: 10px 0;">
+      <p style="font-size: 0.88rem; color: var(--text-muted); margin-bottom: 12px;">
+        Buka WhatsApp di HP &gt; <strong>Perangkat Tertaut</strong> &gt; <strong>Tautkan Perangkat</strong>, lalu scan QR Code di bawah dengan kamera WhatsApp:
       </p>
-      <div id="modalCodeDisplay" style="font-size: 2.4rem; font-weight: 800; letter-spacing: 6px; color: var(--accent-cyan); font-family: monospace; padding: 10px 0; user-select: all;">
-        ---- - ----
+      <div id="qrLoadingText" style="color: var(--accent-amber); font-size: 0.85rem; padding: 20px 0; display: <%= botState.qr ? 'none' : 'block' %>;">
+        ⏳ Menyiapkan QR Code WhatsApp... (Tunggu beberapa detik)
       </div>
-      <div style="margin: 6px 0 12px 0; font-size: 0.88rem;">
-        <span id="modalCountdown" style="color: var(--accent-amber); font-weight: 600;">
-          ⏳ Berlaku: <span id="modalSeconds">60</span> detik
-        </span>
+      <div id="qrContainer" style="display: <%= botState.qr ? 'block' : 'none' %>; margin: 10px auto;">
+        <img id="qrImageTag" src="https://api.qrserver.com/v1/create-qr-code/?size=240x240&data=<%= encodeURIComponent(botState.qr || '') %>" style="width: 220px; height: 220px; border-radius: 10px; background: white; padding: 10px; border: 3px solid var(--accent-cyan); display: inline-block;">
       </div>
-      <div style="display: flex; justify-content: center; gap: 10px;">
-        <button type="button" id="btnModalCopyCode" class="btn btn-secondary btn-sm" style="font-size: 0.85rem; padding: 6px 14px;">
-          📋 Salin Kode
+      <div style="margin-top: 14px;">
+        <button type="button" onclick="handleResetSession()" class="btn btn-secondary btn-sm">
+          🔄 Muat Ulang QR Baru
         </button>
-      </div>
-      <div style="margin-top: 16px; font-size: 0.8rem; color: var(--text-muted); text-align: left; background: rgba(255,255,255,0.03); padding: 12px 14px; border-radius: 6px; line-height: 1.5;">
-        <strong style="color: var(--text-color);">📱 Langkah Input di HP:</strong><br>
-        1. Buka aplikasi WhatsApp di HP Anda.<br>
-        2. Masuk ke <strong>Perangkat Tertaut</strong> &gt; <strong>Tautkan Perangkat</strong>.<br>
-        3. Ketuk tulisan <strong>Tautkan dengan nomor telepon saja</strong> di bagian bawah layar.<br>
-        4. Masukkan 8 digit kode di atas sebelum hitung mundur habis.
       </div>
     </div>
   </div>

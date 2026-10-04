@@ -219,7 +219,8 @@ export async function initBaileys() {
 
       if (connection === 'close') {
         const statusCode = lastDisconnect?.error?.output?.statusCode;
-        const shouldReconnect = statusCode !== DisconnectReason.loggedOut;
+        const isLoggedOut = statusCode === DisconnectReason.loggedOut || statusCode === 401;
+        const shouldReconnect = !isLoggedOut;
         botState.status = 'disconnected';
         botState.step = 'disconnected';
         if (!botState.pairingCodeCreatedAt || Date.now() - botState.pairingCodeCreatedAt > 60_000) {
@@ -236,7 +237,20 @@ export async function initBaileys() {
             }
           }, 5000);
         } else {
-          console.log('[WA] Sesi logout terdeteksi. Silakan hubungkan ulang nomor bot melalui Web Dashboard.');
+          console.log('[WA] ⚠️ Sesi logout (401). Membersihkan kredensial basi & menyiapkan socket baru...');
+          try {
+            if (fs.existsSync(AUTH_DIR)) {
+              const files = fs.readdirSync(AUTH_DIR);
+              for (const f of files) {
+                fs.unlinkSync(path.join(AUTH_DIR, f));
+              }
+            }
+          } catch (e) {
+            console.error('[WA] Gagal bersihkan auth_info basi:', e.message);
+          }
+          setTimeout(() => {
+            initBaileys().catch(e => console.error('[WA] Re-init after logout error:', e.message));
+          }, 3000);
         }
       } else if (connection === 'open') {
         botState.status = 'connected';

@@ -330,6 +330,7 @@ router.get('/api/bot/status', requireAuth, async (req, res) => {
     status: botState.status,
     pairingCode: botState.pairingCode,
     pairingCodeCreatedAt: botState.pairingCodeCreatedAt,
+    qr: botState.qr,
     botNumber: botState.botNumber,
     lastError: botState.lastError,
     isRemote: false
