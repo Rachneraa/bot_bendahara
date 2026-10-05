@@ -83,6 +83,13 @@ CREATE TABLE IF NOT EXISTS `schedules` (
   `note` TEXT NULL,
   `temp_note` TEXT NULL,
   `temp_note_date` DATE NULL,
+  `status_override` VARCHAR(20) DEFAULT 'normal',
+  `status_note` TEXT NULL,
+  `override_date` DATE NULL,
+  `override_day` VARCHAR(20) NULL,
+  `override_start_time` TIME NULL,
+  `override_end_time` TIME NULL,
+  `override_location` VARCHAR(150) NULL,
   `is_active` BOOLEAN DEFAULT TRUE,
   `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   INDEX `idx_day_time` (`day_of_week`, `start_time`)
@@ -91,12 +98,11 @@ CREATE TABLE IF NOT EXISTS `schedules` (
 -- 8. Tabel Reminder Logs (Mencegah Notifikasi Ganda / Spam)
 CREATE TABLE IF NOT EXISTS `reminder_logs` (
   `id` INT AUTO_INCREMENT PRIMARY KEY,
-  `schedule_id` INT NOT NULL,
-  `reminder_type` ENUM('5_hours', 'h_0') NOT NULL,
+  `schedule_id` INT NOT NULL DEFAULT 0,
+  `reminder_type` VARCHAR(50) NOT NULL,
   `reminder_date` DATE NOT NULL,
   `sent_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-  UNIQUE KEY `unique_reminder` (`schedule_id`, `reminder_type`, `reminder_date`),
-  CONSTRAINT `fk_reminder_schedule` FOREIGN KEY (`schedule_id`) REFERENCES `schedules` (`id`) ON DELETE CASCADE
+  UNIQUE KEY `unique_reminder` (`schedule_id`, `reminder_type`, `reminder_date`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- ==========================================================
@@ -105,10 +111,10 @@ CREATE TABLE IF NOT EXISTS `reminder_logs` (
 
 -- Template Pesan Default
 INSERT INTO `message_templates` (`key_name`, `title`, `content`) VALUES
-('reminder_5_hours', 'Pengingat 5 Jam Sebelum Kelas', '📢 *PENGINGAT KELAS (5 JAM LAGI)* 📢\n\n⏰ *Waktu*    : {jam} WIB\n📚 *Matkul*   : {matkul}\n👨‍🏫 *Dosen*    : {dosen}\n📝 *Catatan*  : {note}\n\nHarap persiapkan materi dan tugas tepat waktu! 🚀'),
-('reminder_h_0', 'Pengingat Saat Kelas Dimulai', '🚨 *KELAS DIMULAI SEKARANG!* 🚨\n\n⏰ *Waktu*    : {jam} WIB\n📚 *Matkul*   : {matkul}\n👨‍🏫 *Dosen*    : {dosen}\n📝 *Catatan*  : {note}\n\nSilakan segera memasuki ruangan / link kelas! 🎓'),
+('reminder_daily', 'Pengingat Jadwal Kuliah Hari Ini (Jam 00:00)', '📚 *JADWAL KULIAH HARI INI ({hari})* 📚\n\nBerikut adalah jadwal perkuliahan hari ini:\n\n{daftar_jadwal}\n\nSemangat kuliahnya rekan-rekan! 🚀'),
+('reminder_3_hours', 'Pengingat 3 Jam Sebelum Kelas', '━━━━━━━━━━━━━━━\n📢 *PENGINGAT KULIAH (3 JAM LAGI)*\n━━━━━━━━━━━━━━━\n📖 *{matkul}*\n🕧 Waktu: {jam} WIB\n📍 Ruang: {lokasi}\n👩‍🏫 Dosen: {dosen}\n{tugas}\n━━━━━━━━━━━━━━━\nHarap persiapkan materi dan perlengkapan kelas! 🚀'),
 ('broadcast_default', 'Format Pengumuman Broadcast', '📢 *PENGUMUMAN KELAS* 📢\n\n{pesan}\n\n— Pengurus Kelas')
-ON DUPLICATE KEY UPDATE `title` = VALUES(`title`);
+ON DUPLICATE KEY UPDATE `title` = VALUES(`title`), `content` = VALUES(`content`);
 
 -- Pengaturan Sistem Default
 INSERT INTO `settings` (`key_name`, `value`) VALUES

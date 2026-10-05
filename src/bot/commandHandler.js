@@ -349,6 +349,383 @@ export async function handleTugasCommand(rawText, args, reply) {
   );
 }
 
+export function parsePindahInput(textWithoutCmd) {
+  const validDays = ['senin', 'selasa', 'rabu', 'kamis', 'jumat', 'sabtu', 'minggu'];
+
+  if (textWithoutCmd.includes('|')) {
+    const parts = textWithoutCmd.split('|').map(p => p.trim());
+    const courseQuery = parts[0];
+    const newDay = (parts[1] || '').toLowerCase();
+    const timeStr = parts[2] || '';
+    const newLocation = parts[3] || '';
+
+    const timeMatch = timeStr.match(/(\d{1,2}[:.]\d{2})\s*(?:-|s\.?d\.?)\s*(\d{1,2}[:.]\d{2})/i);
+    if (!timeMatch || !validDays.includes(newDay)) {
+      return null;
+    }
+
+    let start = timeMatch[1].replace(/\./g, ':');
+    let end = timeMatch[2].replace(/\./g, ':');
+    start = start.length === 5 ? `${start}:00` : (start.length === 4 ? `0${start}:00` : start);
+    end = end.length === 5 ? `${end}:00` : (end.length === 4 ? `0${end}:00` : end);
+
+    return { courseQuery, newDay, startTime: start, endTime: end, newLocation };
+  }
+
+  const timeRegex = /\b(\d{1,2}[:.]\d{2})\s*(?:-|s\.?d\.?)\s*(\d{1,2}[:.]\d{2})\b/i;
+  const timeMatch = textWithoutCmd.match(timeRegex);
+  if (!timeMatch) return null;
+
+  let start = timeMatch[1].replace(/\./g, ':');
+  let end = timeMatch[2].replace(/\./g, ':');
+  start = start.length === 5 ? `${start}:00` : (start.length === 4 ? `0${start}:00` : start);
+  end = end.length === 5 ? `${end}:00` : (end.length === 4 ? `0${end}:00` : end);
+
+  const timeIndex = timeMatch.index;
+  const timeEndIndex = timeIndex + timeMatch[0].length;
+  const textBeforeTime = textWithoutCmd.slice(0, timeIndex).trim();
+  const textAfterTime = textWithoutCmd.slice(timeEndIndex).trim();
+
+  const words = textBeforeTime.split(/\s+/);
+  let dayFound = null;
+  let dayIdx = -1;
+
+  for (let i = words.length - 1; i >= 0; i--) {
+    const w = words[i].toLowerCase();
+    if (validDays.includes(w)) {
+      dayFound = w;
+      dayIdx = i;
+      break;
+    }
+  }
+
+  if (!dayFound) return null;
+
+  const courseQuery = words.slice(0, dayIdx).join(' ').trim();
+  const newLocation = textAfterTime;
+
+  if (!courseQuery) return null;
+
+  return {
+    courseQuery,
+    newDay: dayFound,
+    startTime: start,
+    endTime: end,
+    newLocation
+  };
+}
+
+export function formatScheduleCard(s, isTodayView = false) {
+  let card = '';
+  const isBatal = s.status_override === 'batal';
+  const isOnline = s.status_override === 'online';
+  const isPindah = s.status_override === 'pindah';
+
+  if (isBatal) {
+    card += `• ❌ ~📖 *${s.course_name}*~ *(DIBATALKAN / KOSONG)*\n`;
+    card += `  🕧 ${formatter.formatTime(s.start_time)} s.d ${formatter.formatTime(s.end_time)} WIB\n`;
+    if (s.status_note) card += `  📝 Alasan: ${s.status_note}\n`;
+    card += `  👩‍🏫 ${s.lecturer}\n`;
+  } else if (isOnline) {
+    card += `• 💻 📖 *${s.course_name}* *(KULIAH ONLINE)*\n`;
+    card += `  🕧 ${formatter.formatTime(s.start_time)} s.d ${formatter.formatTime(s.end_time)} WIB\n`;
+    card += `  🔗 Link: ${s.status_note || 'Via daring'}\n`;
+    card += `  👩‍🏫 ${s.lecturer}\n`;
+    if (s.temp_note) card += `  📌 *Tugas/Bawaan:* ${s.temp_note}\n`;
+  } else if (isPindah) {
+    const effectiveStart = s.override_start_time || s.start_time;
+    const effectiveEnd = s.override_end_time || s.end_time;
+    const effectiveLoc = s.override_location || s.note;
+    card += `• 🔄 📖 *${s.course_name}* *(PINDAH JADWAL)*\n`;
+    if (isTodayView) {
+      card += `  🕧 ${formatter.formatTime(effectiveStart)} s.d ${formatter.formatTime(effectiveEnd)} WIB (Kuliah Pengganti)\n`;
+      if (effectiveLoc) card += `  📍 ${effectiveLoc}\n`;
+    } else {
+      card += `  🕧 Jadwal Asli: ${formatter.formatTime(s.start_time)} s.d ${formatter.formatTime(s.end_time)} WIB\n`;
+      card += `  ✨ Dipindah ke: *${(s.override_day || '').toUpperCase()}* (${formatter.formatTime(effectiveStart)} - ${formatter.formatTime(effectiveEnd)} WIB) di ${effectiveLoc || '-'}\n`;
+    }
+    card += `  👩‍🏫 ${s.lecturer}\n`;
+    if (s.temp_note) card += `  📌 *Tugas/Bawaan:* ${s.temp_note}\n`;
+  } else {
+    card += `• 📖 *${s.course_name}*\n`;
+    card += `  🕧 ${formatter.formatTime(s.start_time)} s.d ${formatter.formatTime(s.end_time)} WIB\n`;
+    if (s.note) card += `  📍 ${s.note}\n`;
+    card += `  👩‍🏫 ${s.lecturer}\n`;
+    if (s.temp_note) card += `  📌 *Tugas/Bawaan:* ${s.temp_note}\n`;
+  }
+  return card.trimEnd();
+}
+
+async function broadcastAnnouncement(sock, messageInfo, annText, reply) {
+  const { isGroup, groupJid } = messageInfo;
+  if (isGroup && sock) {
+    let mentions = [];
+    try {
+      const meta = await getCachedGroupMetadata(sock, groupJid);
+      if (meta && Array.isArray(meta.participants)) {
+        mentions = meta.participants.map(p => p.id);
+      }
+    } catch (_) {}
+    await reply(annText, mentions);
+  } else {
+    await reply(`✅ Pengumuman status perkuliahan berhasil dibuat!\n\n` + annText);
+    const targetGroupJid = await messageService.getSetting('target_group_jid');
+    if (targetGroupJid && sock) {
+      let mentions = [];
+      try {
+        const meta = await getCachedGroupMetadata(sock, targetGroupJid);
+        if (meta && Array.isArray(meta.participants)) {
+          mentions = meta.participants.map(p => p.id);
+        }
+      } catch (_) {}
+      await sock.sendMessage(targetGroupJid, { text: annText, mentions });
+    }
+  }
+}
+
+export async function handleKuliahCommand(rawText, args, messageInfo, reply, isAdmin = false, sock = null) {
+  const action = (args[2] || '').toLowerCase();
+
+  // 1. Status overview jika tanpa aksi atau 'list' / 'status'
+  if (!action || action === 'list' || action === 'status') {
+    const allSchedules = await jadwalService.getAllSchedules(true);
+    const overrides = allSchedules.filter(s => s.status_override && s.status_override !== 'normal');
+
+    if (overrides.length === 0) {
+      await reply(
+        `🎓 *STATUS PERKULIAHAN KELAS* 🎓\n\n` +
+        `✅ Seluruh perkuliahan saat ini berjalan *NORMAL (REGULER)* sesuai jadwal mingguan.\n\n` +
+        `*Panduan Pengaturan Status (Khusus Pertemuan Terdekat):*\n` +
+        `• Kelas Kosong/Batal: \`!bot kuliah batal <matkul> [alasan]\`\n` +
+        `• Kuliah Online: \`!bot kuliah online <matkul> <link/info>\`\n` +
+        `• Pindah Jadwal: \`!bot kuliah pindah <matkul> <hari> <jam> [ruang]\`\n` +
+        `• Kembalikan Normal: \`!bot kuliah normal <matkul>\``
+      );
+      return;
+    }
+
+    let out = `🎓 *STATUS KHUSUS PERKULIAHAN AKTIF* 🎓\n\n`;
+    overrides.forEach((s, idx) => {
+      let badge = '';
+      if (s.status_override === 'batal') badge = '❌ DIBATALKAN / KOSONG';
+      else if (s.status_override === 'online') badge = '💻 KULIAH ONLINE (DARING)';
+      else if (s.status_override === 'pindah') badge = '🔄 PINDAH JADWAL (PENGGANTI)';
+
+      out += `${idx + 1}. 📖 *${s.course_name}* (${s.lecturer})\n`;
+      out += `   🏷️ Status: *${badge}*\n`;
+      out += `   🗓️ Jadwal Asli: ${s.day_of_week.toUpperCase()} (${formatter.formatTime(s.start_time)} - ${formatter.formatTime(s.end_time)} WIB)\n`;
+      if (s.status_override === 'pindah') {
+        out += `   ✨ Jadwal Baru: *${(s.override_day || '').toUpperCase()}* (${formatter.formatTime(s.override_start_time || s.start_time)} - ${formatter.formatTime(s.override_end_time || s.end_time)} WIB)\n`;
+        out += `   📍 Lokasi Baru: ${s.override_location || '-'}\n`;
+      } else {
+        out += `   📝 Keterangan: ${s.status_note || '-'}\n`;
+      }
+      out += `\n`;
+    });
+
+    out += `💡 _Status di atas hanya berlaku 1x dan akan otomatis normal kembali setelah jam kuliah selesai._`;
+    await reply(out.trim());
+    return;
+  }
+
+  // 2. Pembatalan Kelas (Kelas Kosong)
+  if (action === 'batal' || action === 'cancel' || action === 'kosong') {
+    const textAfter = rawText.replace(/^!bot\s+(?:jadwal\s+|kuliah\s+)(?:batal|cancel|kosong)\s*/i, '').trim();
+    if (!textAfter) {
+      await reply(
+        `❌ Masukkan nama mata kuliah yang dibatalkan / kosong.\n\n` +
+        `*Format:* \`!bot kuliah batal <matkul> [alasan]\`\n` +
+        `*Contoh:* \`!bot kuliah batal kalkulus dosen berhalangan hadir\``
+      );
+      return;
+    }
+
+    let courseQuery = '';
+    let reason = '';
+    if (textAfter.includes('|')) {
+      const parts = textAfter.split('|');
+      courseQuery = parts[0].trim();
+      reason = parts.slice(1).join('|').trim();
+    } else {
+      const allSchedules = await jadwalService.getAllSchedules();
+      const sorted = [...allSchedules].sort((a, b) => b.course_name.length - a.course_name.length);
+      let matched = null;
+      for (const s of sorted) {
+        if (textAfter.toLowerCase().startsWith(s.course_name.toLowerCase())) {
+          matched = s;
+          courseQuery = s.id;
+          reason = textAfter.slice(s.course_name.length).trim();
+          break;
+        }
+      }
+      if (!matched) {
+        const words = textAfter.split(/\s+/);
+        courseQuery = words[0];
+        reason = words.slice(1).join(' ').trim();
+      }
+    }
+
+    const schedule = await jadwalService.findScheduleByQuery(String(courseQuery));
+    if (!schedule) {
+      await reply(`❌ Jadwal mata kuliah "${courseQuery}" tidak ditemukan.\nKetik \`!bot jadwal\` untuk melihat daftar jadwal.`);
+      return;
+    }
+
+    const res = await jadwalService.setClassCancelled(schedule.id, reason);
+    const meetingDateStr = res.override_date
+      ? formatter.formatDateIndo(new Date(res.override_date))
+      : schedule.day_of_week.toUpperCase();
+
+    const annText =
+      `📢 *PENGUMUMAN: KELAS KOSONG / DIBATALKAN* 📢\n\n` +
+      `Diberitahukan kepada seluruh rekan kelas bahwa perkuliahan berikut ditiadakan untuk pertemuan terdekat:\n\n` +
+      `📖 *Mata Kuliah* : *${schedule.course_name}*\n` +
+      `👩‍🏫 *Dosen*       : ${schedule.lecturer}\n` +
+      `🗓️ *Pertemuan*   : *${schedule.day_of_week.toUpperCase()}* (${meetingDateStr})\n` +
+      `🕧 *Waktu*       : ${formatter.formatTime(schedule.start_time)} s.d ${formatter.formatTime(schedule.end_time)} WIB\n` +
+      `❌ *Status*      : *DIBATALKAN / KOSONG*\n` +
+      `📝 *Keterangan*  : ${res.status_note}\n\n` +
+      `_Pengingat otomatis untuk pertemuan ini dinonaktifkan. Jadwal akan otomatis kembali normal setelah jam perkuliahan selesai._ 🚀`;
+
+    await broadcastAnnouncement(sock, messageInfo, annText, reply);
+    return;
+  }
+
+  // 3. Kuliah Online (Daring)
+  if (action === 'online' || action === 'daring' || action === 'zoom') {
+    const textAfter = rawText.replace(/^!bot\s+(?:jadwal\s+|kuliah\s+)(?:online|daring|zoom)\s*/i, '').trim();
+    if (!textAfter) {
+      await reply(
+        `❌ Masukkan nama mata kuliah dan link/media online.\n\n` +
+        `*Format:* \`!bot kuliah online <matkul> <link/info>\`\n` +
+        `*Contoh:* \`!bot kuliah online kalkulus https://zoom.us/j/123456\`\n` +
+        `*Atau:* \`!bot kuliah online logika komputasi | via Google Meet link menyusul\``
+      );
+      return;
+    }
+
+    let courseQuery = '';
+    let linkInfo = '';
+    if (textAfter.includes('|')) {
+      const parts = textAfter.split('|');
+      courseQuery = parts[0].trim();
+      linkInfo = parts.slice(1).join('|').trim();
+    } else {
+      const allSchedules = await jadwalService.getAllSchedules();
+      const sorted = [...allSchedules].sort((a, b) => b.course_name.length - a.course_name.length);
+      let matched = null;
+      for (const s of sorted) {
+        if (textAfter.toLowerCase().startsWith(s.course_name.toLowerCase())) {
+          matched = s;
+          courseQuery = s.id;
+          linkInfo = textAfter.slice(s.course_name.length).trim();
+          break;
+        }
+      }
+      if (!matched) {
+        const words = textAfter.split(/\s+/);
+        courseQuery = words[0];
+        linkInfo = words.slice(1).join(' ').trim();
+      }
+    }
+
+    const schedule = await jadwalService.findScheduleByQuery(String(courseQuery));
+    if (!schedule) {
+      await reply(`❌ Jadwal mata kuliah "${courseQuery}" tidak ditemukan.\nKetik \`!bot jadwal\` untuk melihat daftar jadwal.`);
+      return;
+    }
+
+    const res = await jadwalService.setClassOnline(schedule.id, linkInfo);
+    const meetingDateStr = res.override_date
+      ? formatter.formatDateIndo(new Date(res.override_date))
+      : schedule.day_of_week.toUpperCase();
+
+    const annText =
+      `📢 *PENGUMUMAN: KULIAH ONLINE (DARING)* 💻\n\n` +
+      `Diberitahukan bahwa perkuliahan berikut dialihkan menjadi *ONLINE* untuk pertemuan terdekat:\n\n` +
+      `📖 *Mata Kuliah* : *${schedule.course_name}*\n` +
+      `👩‍🏫 *Dosen*       : ${schedule.lecturer}\n` +
+      `🗓️ *Pertemuan*   : *${schedule.day_of_week.toUpperCase()}* (${meetingDateStr})\n` +
+      `🕧 *Waktu*       : ${formatter.formatTime(schedule.start_time)} s.d ${formatter.formatTime(schedule.end_time)} WIB\n` +
+      `💻 *Media/Link*  : ${res.status_note}\n\n` +
+      `_Pengingat otomatis H-5 & H-0 akan disesuaikan dengan info online. Status otomatis normal kembali setelah jam perkuliahan selesai._ 🚀`;
+
+    await broadcastAnnouncement(sock, messageInfo, annText, reply);
+    return;
+  }
+
+  // 4. Pindah Jadwal (Kuliah Pengganti)
+  if (action === 'pindah' || action === 'ganti' || action === 'reschedule') {
+    const textAfter = rawText.replace(/^!bot\s+(?:jadwal\s+|kuliah\s+)(?:pindah|ganti|reschedule)\s*/i, '').trim();
+    const parsed = parsePindahInput(textAfter);
+
+    if (!parsed) {
+      await reply(
+        `❌ Format pindah jadwal tidak valid!\n\n` +
+        `*Format Pipa:* \`!bot kuliah pindah <matkul> | <hari> | <jam> | [ruang]\`\n` +
+        `*Contoh:* \`!bot kuliah pindah kalkulus | kamis | 09:00-11:00 | R5305\`\n\n` +
+        `*Format Alami:* \`!bot kuliah pindah <matkul> <hari> <jam> [ruang]\`\n` +
+        `*Contoh:* \`!bot kuliah pindah kalkulus kamis 09:00-11:00 R5305\``
+      );
+      return;
+    }
+
+    const schedule = await jadwalService.findScheduleByQuery(String(parsed.courseQuery));
+    if (!schedule) {
+      await reply(`❌ Jadwal mata kuliah "${parsed.courseQuery}" tidak ditemukan.\nKetik \`!bot jadwal\` untuk melihat daftar jadwal.`);
+      return;
+    }
+
+    const res = await jadwalService.setClassRescheduled(schedule.id, parsed);
+    const meetingDateStr = res.override_date
+      ? formatter.formatDateIndo(new Date(res.override_date))
+      : parsed.newDay.toUpperCase();
+
+    const annText =
+      `📢 *PENGUMUMAN: PERUBAHAN JADWAL KULIAH (PENGGANTI)* 🔄\n\n` +
+      `Diberitahukan kepada seluruh rekan kelas bahwa perkuliahan:\n` +
+      `📖 *Mata Kuliah*      : *${schedule.course_name}*\n` +
+      `👩‍🏫 *Dosen*            : ${schedule.lecturer}\n` +
+      `🗓️ *Jadwal Semula*     : ${schedule.day_of_week.toUpperCase()} (${formatter.formatTime(schedule.start_time)} - ${formatter.formatTime(schedule.end_time)} WIB)\n\n` +
+      `✨ *DIALIHKAN KE JADWAL PENGGANTI:* ✨\n` +
+      `🗓️ *Hari/Tanggal*      : *${parsed.newDay.toUpperCase()}* (${meetingDateStr})\n` +
+      `🕧 *Waktu*             : *${formatter.formatTime(parsed.startTime)} s.d ${formatter.formatTime(parsed.endTime)} WIB*\n` +
+      `📍 *Ruangan/Lokasi*    : *${parsed.newLocation || schedule.note || 'Sesuai info dosen'}*\n\n` +
+      `_Pengingat otomatis pada jadwal semula dinonaktifkan dan dialihkan ke jadwal pengganti. Status akan otomatis normal kembali setelah kuliah selesai._ 🚀`;
+
+    await broadcastAnnouncement(sock, messageInfo, annText, reply);
+    return;
+  }
+
+  // 5. Kembalikan ke Normal
+  if (action === 'normal' || action === 'reset') {
+    const textAfter = rawText.replace(/^!bot\s+(?:jadwal\s+|kuliah\s+)(?:normal|reset)\s*/i, '').trim();
+    if (!textAfter) {
+      await reply('❌ Masukkan nama mata kuliah yang ingin dikembalikan ke status normal.\nContoh: `!bot kuliah normal kalkulus`');
+      return;
+    }
+
+    const schedule = await jadwalService.findScheduleByQuery(textAfter);
+    if (!schedule) {
+      await reply(`❌ Jadwal mata kuliah "${textAfter}" tidak ditemukan.`);
+      return;
+    }
+
+    await jadwalService.resetClassStatus(schedule.id);
+    await reply(`✅ Status perkuliahan *${schedule.course_name}* (${schedule.day_of_week.toUpperCase()}) telah dikembalikan ke *NORMAL (REGULER)*.`);
+    return;
+  }
+
+  await reply(
+    `❌ Perintah kuliah tidak dikenali.\n\nPilihan:\n` +
+    `• \`!bot kuliah\` : Cek status khusus kuliah aktif\n` +
+    `• \`!bot kuliah batal <matkul> [alasan]\`\n` +
+    `• \`!bot kuliah online <matkul> <link/info>\`\n` +
+    `• \`!bot kuliah pindah <matkul> <hari> <jam> [ruang]\`\n` +
+    `• \`!bot kuliah normal <matkul>\``
+  );
+}
+
 export async function handleCommand(sock, messageInfo, isAdmin = false) {
   const { rawText, fromJid, isGroup, groupJid, senderNumber, senderJid } = messageInfo;
   const reply = async (text, mentions = []) => {
@@ -374,10 +751,11 @@ export async function handleCommand(sock, messageInfo, isAdmin = false) {
 
     const isKasAdmin = subCmd === 'kas' && ['masuk', 'keluar', 'del', 'hapus', 'reset', 'koreksi'].includes((args[2] || '').toLowerCase());
     const isMemberAdmin = (subCmd === 'member' && ['tambah', 'add', 'hapus', 'del'].includes((args[2] || '').toLowerCase())) || (subCmd === 'member' && (args[2] || '').toLowerCase() === 'nim' && args[4]);
-    const isJadwalAdmin = subCmd === 'jadwal' && ['tambah', 'add', 'hapus', 'del'].includes((args[2] || '').toLowerCase());
+    const isJadwalAdmin = subCmd === 'jadwal' && ['tambah', 'add', 'hapus', 'del', 'batal', 'online', 'pindah', 'normal', 'reset', 'cancel', 'kosong', 'daring', 'zoom', 'ganti', 'reschedule'].includes((args[2] || '').toLowerCase());
+    const isKuliahAdmin = subCmd === 'kuliah' && ['batal', 'online', 'pindah', 'normal', 'reset', 'cancel', 'kosong', 'daring', 'zoom', 'ganti', 'reschedule'].includes((args[2] || '').toLowerCase());
     const isTugasAdmin = (subCmd === 'tugas' && args[2] && !['list'].includes(args[2].toLowerCase())) || (subCmd === 'jadwal' && (args[2] || '').toLowerCase() === 'tugas' && args[3] && !['list'].includes(args[3].toLowerCase()));
 
-    const isRestricted = adminCommands.has(subCmd) || isKasAdmin || isMemberAdmin || isJadwalAdmin || isTugasAdmin;
+    const isRestricted = adminCommands.has(subCmd) || isKasAdmin || isMemberAdmin || isJadwalAdmin || isKuliahAdmin || isTugasAdmin;
 
     if (isRestricted && !isAdmin) {
       await reply(
@@ -427,11 +805,15 @@ export async function handleCommand(sock, messageInfo, isAdmin = false) {
 • \`!bot member nim <nama/id> <nim>\` : Atur/ubah NIM mahasiswa.
 • \`!bot member tambah <nama>\` : Tambah anggota baru.
 
-*📚 JADWAL KULIAH*
+*📚 JADWAL KULIAH & STATUS PERTEMUAN*
 • \`!bot jadwal\` : Lihat jadwal kuliah hari ini & mingguan.
 • \`!bot jadwal tambah <hari>|<jam>|<matkul>|<dosen>|<note>\`
-  _Contoh: \`!bot jadwal tambah senin|08:00-10:00|Kalkulus|Pak Budi|Bawa tugas 1\`_
-• \`!bot jadwal hapus <id>\` : Hapus jadwal kuliah berdasarkan ID.
+• \`!bot jadwal hapus <matkul>\` : Hapus jadwal perkuliahan.
+• \`!bot kuliah\` : Cek status perkuliahan khusus (batal/online/pindah).
+• \`!bot kuliah batal <matkul> [alasan]\` : Tandai kelas kosong/batal 1x (Admin).
+• \`!bot kuliah online <matkul> <link>\` : Alihkan kelas jadi online 1x (Admin).
+• \`!bot kuliah pindah <matkul> <hari> <jam> [ruang]\` : Pindah jadwal/kuliah pengganti 1x (Admin).
+• \`!bot kuliah normal <matkul>\` : Kembalikan status kuliah ke normal (Admin).
 
 *📌 TUGAS & BARANG BAWAAN (1X PAKAI)*
 • \`!bot tugas\` : Lihat seluruh daftar tugas & barang bawaan aktif.
@@ -1109,12 +1491,7 @@ export async function handleCommand(sock, messageInfo, isAdmin = false) {
           outText += `🎉 _Tidak ada perkuliahan hari ini!_\n\n`;
         } else {
           todaySchedules.forEach((s) => {
-            outText += `• 📖 *${s.course_name}*\n`;
-            outText += `  🕧 ${formatter.formatTime(s.start_time)} s.d ${formatter.formatTime(s.end_time)} WIB\n`;
-            if (s.note) outText += `  📍 ${s.note}\n`;
-            outText += `  👩‍🏫 ${s.lecturer}\n`;
-            if (s.temp_note) outText += `  📌 *Tugas/Bawaan:* ${s.temp_note}\n`;
-            outText += `\n`;
+            outText += formatScheduleCard(s, true) + '\n\n';
           });
         }
 
@@ -1134,12 +1511,7 @@ export async function handleCommand(sock, messageInfo, isAdmin = false) {
             if (grouped[d] && grouped[d].length > 0) {
               outText += `*${d.toUpperCase()}*\n\n`;
               for (const s of grouped[d]) {
-                outText += `• 📖 *${s.course_name}*\n`;
-                outText += `  🕧 ${formatter.formatTime(s.start_time)} s.d ${formatter.formatTime(s.end_time)} WIB\n`;
-                if (s.note) outText += `  📍 ${s.note}\n`;
-                outText += `  👩‍🏫 ${s.lecturer}\n`;
-                if (s.temp_note) outText += `  📌 *Tugas/Bawaan:* ${s.temp_note}\n`;
-                outText += `\n`;
+                outText += formatScheduleCard(s, false) + '\n\n';
               }
             }
           }
@@ -1148,6 +1520,8 @@ export async function handleCommand(sock, messageInfo, isAdmin = false) {
         await reply(outText.trim());
       } else if (action === 'tugas') {
         await handleTugasCommand(rawText, ['!bot', 'tugas', ...args.slice(3)], reply);
+      } else if (['batal', 'online', 'pindah', 'normal', 'reset', 'cancel', 'kosong', 'daring', 'zoom', 'ganti', 'reschedule'].includes(action)) {
+        await handleKuliahCommand(rawText, ['!bot', 'kuliah', ...args.slice(2)], messageInfo, reply, isAdmin, sock);
       } else if (action === 'tambah') {
         const parsed = parseScheduleLines(rawText);
 
@@ -1217,8 +1591,20 @@ export async function handleCommand(sock, messageInfo, isAdmin = false) {
         await jadwalService.deleteSchedule(s.id);
         await reply(`✅ Jadwal perkuliahan *${s.course_name}* (${s.day_of_week.toUpperCase()}) berhasil dihapus.`);
       } else {
-        await reply('❌ Perintah jadwal tidak dikenali.\nPilihan:\n`!bot jadwal`\n`!bot jadwal tambah <format>`\n`!bot jadwal hapus <nama matkul>`\n`!bot tugas <matkul> <catatan>`');
+        await reply(
+          '❌ Perintah jadwal tidak dikenali.\n\nPilihan:\n' +
+          '• `!bot jadwal`\n' +
+          '• `!bot jadwal tambah <format>`\n' +
+          '• `!bot jadwal hapus <nama matkul>`\n' +
+          '• `!bot kuliah batal/online/pindah/normal`\n' +
+          '• `!bot tugas <matkul> <catatan>`'
+        );
       }
+      break;
+    }
+
+    case 'kuliah': {
+      await handleKuliahCommand(rawText, args, messageInfo, reply, isAdmin, sock);
       break;
     }
 

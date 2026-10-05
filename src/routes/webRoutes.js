@@ -363,7 +363,13 @@ router.post('/api/bridge/test-reminder', verifyBridge, async (req, res) => {
       note: 'Ini adalah pesan uji coba dari dashboard'
     };
 
-    const text = `🧪 *[SIMULASI UJI COBA REMINDER]*\n\n` + messageService.buildReminderMessage(template ? template.content : '', sampleSchedule);
+    let msgBody = '';
+    if (templateKey === 'reminder_daily') {
+      msgBody = messageService.buildDailyScheduleMessage(template ? template.content : '', schedules.length > 0 ? schedules.slice(0, 3) : [sampleSchedule], 'senin');
+    } else {
+      msgBody = messageService.buildReminderMessage(template ? template.content : '', sampleSchedule);
+    }
+    const text = `🧪 *[SIMULASI UJI COBA REMINDER]*\n\n` + msgBody;
     await sendGroupNotification(target, text, true);
     res.json({ success: true, message: 'Tes pengingat terkirim ke WhatsApp' });
   } catch (err) {
@@ -671,6 +677,102 @@ router.post('/schedules/task-note/:id/clear', requireAuth, async (req, res) => {
   }
 });
 
+router.post('/schedules/status/:id', requireAuth, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const {
+      status_type,
+      status_reason,
+      status_link,
+      new_day,
+      new_start_time,
+      new_end_time,
+      new_location,
+      broadcast_announcement
+    } = req.body;
+
+    const schedule = await jadwalService.getScheduleById(id);
+    if (!schedule) throw new Error('Jadwal perkuliahan tidak ditemukan');
+
+    let annText = '';
+    if (status_type === 'normal') {
+      await jadwalService.resetClassStatus(id);
+      annText = `✅ Status perkuliahan *${schedule.course_name}* (${schedule.day_of_week.toUpperCase()}) telah dikembalikan ke *NORMAL (REGULER)*.`;
+    } else if (status_type === 'batal') {
+      const updated = await jadwalService.setClassCancelled(id, status_reason);
+      const meetingDateStr = updated.override_date
+        ? formatter.formatDateIndo(new Date(updated.override_date))
+        : schedule.day_of_week.toUpperCase();
+
+      annText =
+        `📢 *PENGUMUMAN: KELAS KOSONG / DIBATALKAN* 📢\n\n` +
+        `Diberitahukan kepada seluruh rekan kelas bahwa perkuliahan berikut ditiadakan untuk pertemuan terdekat:\n\n` +
+        `📖 *Mata Kuliah* : *${schedule.course_name}*\n` +
+        `👩‍🏫 *Dosen*       : ${schedule.lecturer}\n` +
+        `🗓️ *Pertemuan*   : *${schedule.day_of_week.toUpperCase()}* (${meetingDateStr})\n` +
+        `🕧 *Waktu*       : ${formatter.formatTime(schedule.start_time)} s.d ${formatter.formatTime(schedule.end_time)} WIB\n` +
+        `❌ *Status*      : *DIBATALKAN / KOSONG*\n` +
+        `📝 *Keterangan*  : ${updated.status_note}\n\n` +
+        `_Pengingat otomatis untuk pertemuan ini dinonaktifkan. Jadwal akan otomatis kembali normal setelah jam perkuliahan selesai._ 🚀`;
+    } else if (status_type === 'online') {
+      const updated = await jadwalService.setClassOnline(id, status_link);
+      const meetingDateStr = updated.override_date
+        ? formatter.formatDateIndo(new Date(updated.override_date))
+        : schedule.day_of_week.toUpperCase();
+
+      annText =
+        `📢 *PENGUMUMAN: KULIAH ONLINE (DARING)* 💻\n\n` +
+        `Diberitahukan bahwa perkuliahan berikut dialihkan menjadi *ONLINE* untuk pertemuan terdekat:\n\n` +
+        `📖 *Mata Kuliah* : *${schedule.course_name}*\n` +
+        `👩‍🏫 *Dosen*       : ${schedule.lecturer}\n` +
+        `🗓️ *Pertemuan*   : *${schedule.day_of_week.toUpperCase()}* (${meetingDateStr})\n` +
+        `🕧 *Waktu*       : ${formatter.formatTime(schedule.start_time)} s.d ${formatter.formatTime(schedule.end_time)} WIB\n` +
+        `💻 *Media/Link*  : ${updated.status_note}\n\n` +
+        `_Pengingat otomatis H-5 & H-0 akan disesuaikan dengan info online. Status otomatis normal kembali setelah jam perkuliahan selesai._ 🚀`;
+    } else if (status_type === 'pindah') {
+      if (!new_day || !new_start_time || !new_end_time) {
+        throw new Error('Hari baru, jam mulai, dan jam selesai wajib diisi untuk jadwal pengganti.');
+      }
+      const updated = await jadwalService.setClassRescheduled(id, {
+        newDay: new_day,
+        startTime: new_start_time,
+        endTime: new_end_time,
+        newLocation: new_location
+      });
+      const meetingDateStr = updated.override_date
+        ? formatter.formatDateIndo(new Date(updated.override_date))
+        : new_day.toUpperCase();
+
+      annText =
+        `📢 *PENGUMUMAN: PERUBAHAN JADWAL KULIAH (PENGGANTI)* 🔄\n\n` +
+        `Diberitahukan kepada seluruh rekan kelas bahwa perkuliahan:\n` +
+        `📖 *Mata Kuliah*      : *${schedule.course_name}*\n` +
+        `👩‍🏫 *Dosen*            : ${schedule.lecturer}\n` +
+        `🗓️ *Jadwal Semula*     : ${schedule.day_of_week.toUpperCase()} (${formatter.formatTime(schedule.start_time)} - ${formatter.formatTime(schedule.end_time)} WIB)\n\n` +
+        `✨ *DIALIHKAN KE JADWAL PENGGANTI:* ✨\n` +
+        `🗓️ *Hari/Tanggal*      : *${new_day.toUpperCase()}* (${meetingDateStr})\n` +
+        `🕧 *Waktu*             : *${formatter.formatTime(new_start_time)} s.d ${formatter.formatTime(new_end_time)} WIB*\n` +
+        `📍 *Ruangan/Lokasi*    : *${new_location || schedule.note || 'Sesuai info dosen'}*\n\n` +
+        `_Pengingat otomatis pada jadwal semula dinonaktifkan dan dialihkan ke jadwal pengganti. Status akan otomatis normal kembali setelah kuliah selesai._ 🚀`;
+    }
+
+    if (broadcast_announcement && annText) {
+      const targetGroupJid = await messageService.getSetting('target_group_jid');
+      if (targetGroupJid) {
+        try {
+          await sendGroupNotification(targetGroupJid, annText, true);
+        } catch (e) {
+          console.warn('[WEB] Gagal kirim broadcast WA status perkuliahan:', e.message);
+        }
+      }
+    }
+
+    res.redirect('/schedules?success=' + encodeURIComponent('Status perkuliahan berhasil diperbarui!'));
+  } catch (err) {
+    res.redirect('/schedules?error=' + encodeURIComponent(err.message));
+  }
+});
+
 // -------------------------------------------------------------
 // 5. MANAJEMEN TEMPLATE PESAN & LIVE BROADCAST
 // -------------------------------------------------------------
@@ -795,7 +897,14 @@ router.post('/messages/test-reminder', requireAuth, async (req, res) => {
       lecturer: 'Dosen Contoh, M.Kom',
       note: 'Ini adalah pesan uji coba dari dashboard'
     };
-    const text = `🧪 *[SIMULASI UJI COBA REMINDER]*\n\n` + messageService.buildReminderMessage(template ? template.content : '', sampleSchedule);
+
+    let msgBody = '';
+    if (template_key === 'reminder_daily') {
+      msgBody = messageService.buildDailyScheduleMessage(template ? template.content : '', schedules.length > 0 ? schedules.slice(0, 3) : [sampleSchedule], 'senin');
+    } else {
+      msgBody = messageService.buildReminderMessage(template ? template.content : '', sampleSchedule);
+    }
+    const text = `🧪 *[SIMULASI UJI COBA REMINDER]*\n\n` + msgBody;
     await sendGroupNotification(destJid, text, true);
     res.redirect('/messages?status=test_sent');
   } catch (err) {

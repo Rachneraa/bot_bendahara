@@ -55,6 +55,45 @@
               <% } else { %>
                 <span style="color: var(--text-dim);">-</span>
               <% } %>
+              <% if (s.status_override === 'batal') { %>
+                <div style="margin-top: 6px; font-size: 0.8rem; background: rgba(239, 68, 68, 0.15); border: 1px solid rgba(239, 68, 68, 0.35); border-radius: 6px; padding: 5px 8px; color: #fca5a5;">
+                  <div style="font-weight: 700; display: flex; align-items: center; gap: 4px;">
+                    <span>❌</span> KELAS DIBATALKAN / KOSONG:
+                  </div>
+                  <div style="color: #fff; margin-top: 2px;"><%= s.status_note %></div>
+                  <% if (s.override_date) { %>
+                    <div style="font-size: 0.72rem; color: #fecaca; margin-top: 3px;">
+                      Pertemuan: <%= formatter.formatDateIndo(new Date(s.override_date)) %>
+                    </div>
+                  <% } %>
+                </div>
+              <% } else if (s.status_override === 'online') { %>
+                <div style="margin-top: 6px; font-size: 0.8rem; background: rgba(59, 130, 246, 0.15); border: 1px solid rgba(59, 130, 246, 0.35); border-radius: 6px; padding: 5px 8px; color: #93c5fd;">
+                  <div style="font-weight: 700; display: flex; align-items: center; gap: 4px;">
+                    <span>💻</span> KULIAH ONLINE (DARING):
+                  </div>
+                  <div style="color: #fff; margin-top: 2px; word-break: break-all;"><%= s.status_note %></div>
+                  <% if (s.override_date) { %>
+                    <div style="font-size: 0.72rem; color: #bfdbfe; margin-top: 3px;">
+                      Pertemuan: <%= formatter.formatDateIndo(new Date(s.override_date)) %>
+                    </div>
+                  <% } %>
+                </div>
+              <% } else if (s.status_override === 'pindah') { %>
+                <div style="margin-top: 6px; font-size: 0.8rem; background: rgba(168, 85, 247, 0.15); border: 1px solid rgba(168, 85, 247, 0.35); border-radius: 6px; padding: 5px 8px; color: #d8b4fe;">
+                  <div style="font-weight: 700; display: flex; align-items: center; gap: 4px;">
+                    <span>🔄</span> PINDAH KE <%= (s.override_day || '').toUpperCase() %>:
+                  </div>
+                  <div style="color: #fff; margin-top: 2px;">
+                    <%= formatter.formatTime(s.override_start_time) %> - <%= formatter.formatTime(s.override_end_time) %> WIB (<%= s.override_location %>)
+                  </div>
+                  <% if (s.override_date) { %>
+                    <div style="font-size: 0.72rem; color: #e9d5ff; margin-top: 3px;">
+                      Tanggal: <%= formatter.formatDateIndo(new Date(s.override_date)) %>
+                    </div>
+                  <% } %>
+                </div>
+              <% } %>
               <% if (s.temp_note) { %>
                 <div style="margin-top: 6px; font-size: 0.8rem; background: rgba(245, 158, 11, 0.15); border: 1px solid rgba(245, 158, 11, 0.35); border-radius: 6px; padding: 5px 8px; color: #fde047;">
                   <div style="font-weight: 700; display: flex; align-items: center; gap: 4px;">
@@ -80,6 +119,22 @@
             </td>
             <td style="text-align: right;">
               <div style="display: inline-flex; gap: 8px;">
+                <button 
+                  type="button"
+                  data-id="<%= s.id %>"
+                  data-course="<%= s.course_name %>"
+                  data-status="<%= s.status_override || 'normal' %>"
+                  data-note="<%= s.status_note || '' %>"
+                  data-day="<%= s.override_day || '' %>"
+                  data-start="<%= s.override_start_time ? s.override_start_time.slice(0, 5) : '' %>"
+                  data-end="<%= s.override_end_time ? s.override_end_time.slice(0, 5) : '' %>"
+                  data-loc="<%= s.override_location || '' %>"
+                  onclick="openStatusModal(this)"
+                  class="btn btn-secondary btn-sm" 
+                  style="background: rgba(168, 85, 247, 0.2); border-color: rgba(168, 85, 247, 0.4); color: #c084fc;"
+                  title="Atur Status Pertemuan (Batal / Online / Pindah)">
+                  🎓 Status 1x
+                </button>
                 <button 
                   type="button"
                   data-id="<%= s.id %>"
@@ -275,6 +330,49 @@
       f.submit();
     }
   }
+
+  function openStatusModal(btn) {
+    const ds = btn.dataset;
+    document.getElementById('formClassStatus').action = '/schedules/status/' + ds.id;
+    document.getElementById('statusCourseName').textContent = ds.course;
+
+    const currentStatus = ds.status || 'normal';
+    document.getElementById('selectStatusType').value = currentStatus;
+
+    document.getElementById('inputStatusReason').value = (currentStatus === 'batal') ? ds.note : '';
+    document.getElementById('inputStatusLink').value = (currentStatus === 'online') ? ds.note : '';
+
+    if (currentStatus === 'pindah') {
+      document.getElementById('selectNewDay').value = ds.day || 'senin';
+      document.getElementById('inputNewStartTime').value = ds.start || '';
+      document.getElementById('inputNewEndTime').value = ds.end || '';
+      document.getElementById('inputNewLocation').value = ds.loc || '';
+    } else {
+      document.getElementById('selectNewDay').value = 'senin';
+      document.getElementById('inputNewStartTime').value = '';
+      document.getElementById('inputNewEndTime').value = '';
+      document.getElementById('inputNewLocation').value = '';
+    }
+
+    onStatusTypeChange();
+    openModal('modalClassStatus');
+  }
+
+  function onStatusTypeChange() {
+    const val = document.getElementById('selectStatusType').value;
+    const secBatal = document.getElementById('sectionBatal');
+    const secOnline = document.getElementById('sectionOnline');
+    const secPindah = document.getElementById('sectionPindah');
+
+    secBatal.style.display = (val === 'batal') ? 'block' : 'none';
+    secOnline.style.display = (val === 'online') ? 'block' : 'none';
+    secPindah.style.display = (val === 'pindah') ? 'block' : 'none';
+
+    document.getElementById('inputStatusReason').required = (val === 'batal');
+    document.getElementById('inputStatusLink').required = (val === 'online');
+    document.getElementById('inputNewStartTime').required = (val === 'pindah');
+    document.getElementById('inputNewEndTime').required = (val === 'pindah');
+  }
 </script>
 
 <!-- Modal Catatan Tugas / Bawaan (1x Pakai) -->
@@ -308,6 +406,92 @@
       </div>
     </form>
     <form id="formClearTaskNote" method="POST" style="display: none;"></form>
+  </div>
+</div>
+
+<!-- Modal Status Perkuliahan 1x (Batal / Online / Pindah) -->
+<div class="modal-overlay" id="modalClassStatus">
+  <div class="modal-content">
+    <div class="card-header">
+      <h3 class="card-title">🎓 Atur Status Perkuliahan (1x Pakai)</h3>
+      <button onclick="closeModal('modalClassStatus')" style="background: none; border: none; color: var(--text-muted); cursor: pointer; font-size: 1.2rem;">✕</button>
+    </div>
+    <form id="formClassStatus" method="POST">
+      <div style="margin-bottom: 16px; padding: 12px 14px; background: rgba(168, 85, 247, 0.12); border-left: 3px solid #a855f7; border-radius: 6px; font-size: 0.85rem; color: #e9d5ff;">
+        <div>Mata Kuliah: <strong id="statusCourseName" style="color: #fff; font-size: 0.95rem;"></strong></div>
+        <div style="font-size: 0.78rem; opacity: 0.85; margin-top: 4px;">
+          Status ini hanya berlaku untuk 1x pertemuan terdekat dan akan otomatis normal kembali setelah perkuliahan selesai.
+        </div>
+      </div>
+
+      <div class="form-group">
+        <label for="selectStatusType">Status Pertemuan</label>
+        <select id="selectStatusType" name="status_type" onchange="onStatusTypeChange()" required style="width: 100%; border-radius: var(--radius-sm); padding: 10px; background: rgba(0,0,0,0.3); border: 1px solid var(--border-color); color: #fff;">
+          <option value="normal">✅ Normal / Reguler (Sesuai Jadwal)</option>
+          <option value="batal">❌ Dibatalkan / Kelas Kosong</option>
+          <option value="online">💻 Kuliah Online (Daring / Zoom / GMeet)</option>
+          <option value="pindah">🔄 Pindah Jadwal (Kuliah Pengganti)</option>
+        </select>
+      </div>
+
+      <!-- Field untuk Batal -->
+      <div id="sectionBatal" style="display: none;">
+        <div class="form-group">
+          <label for="inputStatusReason">Alasan Pembatalan / Keterangan</label>
+          <input type="text" id="inputStatusReason" name="status_reason" placeholder="Contoh: Dosen berhalangan hadir / sakit" style="width: 100%; border-radius: var(--radius-sm); padding: 10px; background: rgba(0,0,0,0.3); border: 1px solid var(--border-color); color: #fff;">
+        </div>
+      </div>
+
+      <!-- Field untuk Online -->
+      <div id="sectionOnline" style="display: none;">
+        <div class="form-group">
+          <label for="inputStatusLink">Link / Info Kuliah Online</label>
+          <input type="text" id="inputStatusLink" name="status_link" placeholder="Contoh: https://zoom.us/j/... (Password: 123456)" style="width: 100%; border-radius: var(--radius-sm); padding: 10px; background: rgba(0,0,0,0.3); border: 1px solid var(--border-color); color: #fff;">
+        </div>
+      </div>
+
+      <!-- Field untuk Pindah Jadwal -->
+      <div id="sectionPindah" style="display: none;">
+        <div class="form-group">
+          <label for="selectNewDay">Hari Pengganti</label>
+          <select id="selectNewDay" name="new_day" style="width: 100%; border-radius: var(--radius-sm); padding: 10px; background: rgba(0,0,0,0.3); border: 1px solid var(--border-color); color: #fff;">
+            <option value="senin">Senin</option>
+            <option value="selasa">Selasa</option>
+            <option value="rabu">Rabu</option>
+            <option value="kamis">Kamis</option>
+            <option value="jumat">Jumat</option>
+            <option value="sabtu">Sabtu</option>
+            <option value="minggu">Minggu</option>
+          </select>
+        </div>
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px;">
+          <div class="form-group">
+            <label for="inputNewStartTime">Jam Mulai Baru</label>
+            <input type="time" id="inputNewStartTime" name="new_start_time" style="width: 100%; border-radius: var(--radius-sm); padding: 10px; background: rgba(0,0,0,0.3); border: 1px solid var(--border-color); color: #fff;">
+          </div>
+          <div class="form-group">
+            <label for="inputNewEndTime">Jam Selesai Baru</label>
+            <input type="time" id="inputNewEndTime" name="new_end_time" style="width: 100%; border-radius: var(--radius-sm); padding: 10px; background: rgba(0,0,0,0.3); border: 1px solid var(--border-color); color: #fff;">
+          </div>
+        </div>
+        <div class="form-group">
+          <label for="inputNewLocation">Ruangan / Lokasi Baru</label>
+          <input type="text" id="inputNewLocation" name="new_location" placeholder="Contoh: R5305 (Gedung Miracle) / Online" style="width: 100%; border-radius: var(--radius-sm); padding: 10px; background: rgba(0,0,0,0.3); border: 1px solid var(--border-color); color: #fff;">
+        </div>
+      </div>
+
+      <div class="form-group" style="margin-top: 14px; background: rgba(0,0,0,0.2); padding: 10px 12px; border-radius: 6px; border: 1px solid var(--border-color);">
+        <label style="display: flex; align-items: center; gap: 8px; cursor: pointer; margin-bottom: 0;">
+          <input type="checkbox" name="broadcast_announcement" checked value="on" style="cursor: pointer; width: 16px; height: 16px;">
+          <span style="font-size: 0.85rem; color: #fff;">📢 Kirim pengumuman langsung ke Grup Kelas WhatsApp</span>
+        </label>
+      </div>
+
+      <div style="display: flex; justify-content: flex-end; gap: 10px; margin-top: 20px;">
+        <button type="button" onclick="closeModal('modalClassStatus')" class="btn btn-secondary">Batal</button>
+        <button type="submit" class="btn btn-primary">Simpan Status</button>
+      </div>
+    </form>
   </div>
 </div>
 

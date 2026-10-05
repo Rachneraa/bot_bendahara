@@ -254,6 +254,38 @@
             <td><code>!bot tugas hapus kalkulus</code><br><code>!bot tugas hapus 1</code></td>
             <td>Menghapus / mereset catatan tugas atau bawaan mata kuliah sebelum waktu kuliah selesai (khusus Admin).</td>
           </tr>
+
+          <!-- Status Kuliah Khusus (Batal / Online / Pindah) -->
+          <tr>
+            <td><span class="badge" style="background: rgba(168, 85, 247, 0.15); color: #c084fc;">Status 1x</span></td>
+            <td><code>!bot kuliah</code></td>
+            <td><code>!bot kuliah</code></td>
+            <td>Melihat seluruh status khusus perkuliahan terdekat yang aktif (batal, online, atau pindah jadwal).</td>
+          </tr>
+          <tr>
+            <td><span class="badge" style="background: rgba(168, 85, 247, 0.15); color: #c084fc;">Status 1x</span></td>
+            <td><code>!bot kuliah batal &lt;matkul&gt; [alasan]</code><br><small style="color: #f87171; font-weight: 600;">❌ Kelas Kosong</small></td>
+            <td><code>!bot kuliah batal kalkulus dosen sakit</code><br><code>!bot kuliah batal logika komputasi</code></td>
+            <td>Menandai perkuliahan <strong>ditiadakan / kelas kosong</strong> untuk 1x pertemuan terdekat. Bot otomatis mengirimkan pengumuman ke grup, mematikan pengingat H-3 Jam & H-0 (00:00), dan mencoret matkul di list jadwal. Kembali normal setelah jam kuliah lewat.</td>
+          </tr>
+          <tr>
+            <td><span class="badge" style="background: rgba(168, 85, 247, 0.15); color: #c084fc;">Status 1x</span></td>
+            <td><code>!bot kuliah online &lt;matkul&gt; &lt;link/info&gt;</code><br><small style="color: #60a5fa; font-weight: 600;">💻 Kuliah Online</small></td>
+            <td><code>!bot kuliah online kalkulus https://zoom.us/j/123456</code><br><code>!bot kuliah online logika komputasi | via GMeet link menyusul</code></td>
+            <td>Mengalihkan perkuliahan menjadi <strong>Online / Daring</strong> untuk 1x pertemuan terdekat. Bot mengirimkan broadcast ke grup dan memperbarui link pada pengingat otomatis H-3 Jam & rangkuman 00:00. Kembali normal setelah kelas usai.</td>
+          </tr>
+          <tr>
+            <td><span class="badge" style="background: rgba(168, 85, 247, 0.15); color: #c084fc;">Status 1x</span></td>
+            <td><code>!bot kuliah pindah &lt;matkul&gt; &lt;hari&gt; &lt;jam&gt; [ruang]</code><br><small style="color: #c084fc; font-weight: 600;">🔄 Kuliah Pengganti</small></td>
+            <td><code>!bot kuliah pindah kalkulus kamis 09:00-11:00 R5305</code><br><code>!bot kuliah pindah algoritma | jumat | 13.00-15.00 | Lab 2</code></td>
+            <td>Memindahkan jadwal kuliah untuk 1x pertemuan. Bot menonaktifkan pengingat di hari lama, mengaktifkan pengingat di hari & jam baru, lalu otomatis kembali normal setelah kelas pengganti usai.</td>
+          </tr>
+          <tr>
+            <td><span class="badge" style="background: rgba(168, 85, 247, 0.15); color: #c084fc;">Status 1x</span></td>
+            <td><code>!bot kuliah normal &lt;matkul&gt;</code></td>
+            <td><code>!bot kuliah normal kalkulus</code></td>
+            <td>Membatalkan override dan mengembalikan status mata kuliah ke <strong>Normal / Reguler</strong> sesuai jadwal mingguan.</td>
+          </tr>
         </tbody>
       </table>
     </div>
@@ -268,16 +300,16 @@
     </div>
     <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 20px;">
       <div style="background: rgba(0, 0, 0, 0.25); padding: 20px; border-radius: var(--radius-md); border: 1px solid var(--border-color);">
-        <h4 style="color: var(--accent-amber); font-size: 1.05rem; margin-bottom: 8px;">⏳ Pengingat 5 Jam Sebelum Kelas (H-5 Jam)</h4>
+        <h4 style="color: var(--accent-cyan); font-size: 1.05rem; margin-bottom: 8px;">🌙 Pengingat Hari-H (Jam 00:00 WIB)</h4>
         <p style="font-size: 0.85rem; color: var(--text-muted); line-height: 1.6;">
-          Sistem scheduler memeriksa jadwal setiap menit. Tepat 5 jam sebelum jam masuk kuliah, bot akan otomatis mengirim pengingat ke grup WhatsApp kelas dengan mention seluruh anggota agar mempersiapkan materi dan tugas kuliah.
+          Tepat saat pergantian hari (pukul 00:00 WIB), bot otomatis mengirimkan <strong>1 pesan rangkuman lengkap</strong> jadwal perkuliahan hari tersebut ke grup WhatsApp kelas (dosen, jam, ruang/link daring, & tugas/bawaan). Jika hari libur / tidak ada perkuliahan, bot tetap diam.
         </p>
       </div>
 
       <div style="background: rgba(0, 0, 0, 0.25); padding: 20px; border-radius: var(--radius-md); border: 1px solid var(--border-color);">
-        <h4 style="color: var(--accent-rose); font-size: 1.05rem; margin-bottom: 8px;">🚨 Pengingat Saat Kelas Dimulai (H-0)</h4>
+        <h4 style="color: var(--accent-amber); font-size: 1.05rem; margin-bottom: 8px;">⏳ Pengingat 3 Jam Sebelum Kelas (H-3 Jam)</h4>
         <p style="font-size: 0.85rem; color: var(--text-muted); line-height: 1.6;">
-          Tepat saat jam perkuliahan dimulai, bot akan mengirimkan notifikasi tanda kelas segera masuk lengkap dengan catatan ruangan kelas atau tautan meeting online.
+          Sistem scheduler memeriksa jadwal setiap menit. Tepat <strong>3 jam</strong> sebelum jam masuk kuliah, bot akan otomatis mengirim pengingat spesifik ke grup WhatsApp kelas dengan mention seluruh anggota agar mempersiapkan materi dan tugas kuliah.
         </p>
       </div>
     </div>

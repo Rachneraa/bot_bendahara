@@ -22,21 +22,34 @@ export function startScheduler() {
       if (pending.length === 0) return;
 
       for (const item of pending) {
-        const { schedule, type, todayDateStr } = item;
-        const templateKey = type === '5_hours' ? 'reminder_5_hours' : 'reminder_h_0';
-        const template = await messageService.getTemplate(templateKey);
+        if (item.type === 'reminder_daily') {
+          const { schedules, todayDateStr, day } = item;
+          const template = await messageService.getTemplate('reminder_daily');
+          const defaultContent =
+            '📚 *JADWAL KULIAH HARI INI ({hari})* 📚\n\n' +
+            'Berikut adalah jadwal perkuliahan hari ini:\n\n' +
+            '{daftar_jadwal}\n\n' +
+            'Semangat kuliahnya rekan-rekan! 🚀';
 
-        const defaultContent = type === '5_hours'
-          ? '📢 *PENGINGAT KELAS (5 JAM LAGI)* 📢\n\n⏰ *Waktu*    : {jam} WIB\n📚 *Matkul*   : {matkul}\n👨‍🏫 *Dosen*    : {dosen}\n📝 *Catatan*  : {note}\n\nHarap persiapkan materi tepat waktu! 🚀'
-          : '🚨 *KELAS DIMULAI SEKARANG!* 🚨\n\n⏰ *Waktu*    : {jam} WIB\n📚 *Matkul*   : {matkul}\n👨‍🏫 *Dosen*    : {dosen}\n📝 *Catatan*  : {note}\n\nSilakan segera bergabung ke kelas! 🎓';
+          const content = template ? template.content : defaultContent;
+          const messageText = messageService.buildDailyScheduleMessage(content, schedules, day);
 
-        const content = template ? template.content : defaultContent;
-        const messageText = messageService.buildReminderMessage(content, schedule);
+          console.log(`[SCHEDULER] Mengirim notifikasi harian 'reminder_daily' (${day.toUpperCase()}) ke grup: ${targetGroupJid}`);
+          await sendGroupNotification(targetGroupJid, messageText, true);
+          await jadwalService.markReminderSent(0, 'reminder_daily', todayDateStr);
+        } else if (item.type === '3_hours') {
+          const { schedule, todayDateStr } = item;
+          const template = await messageService.getTemplate('reminder_3_hours');
+          const defaultContent =
+            '━━━━━━━━━━━━━━━\n📢 *PENGINGAT KULIAH (3 JAM LAGI)*\n━━━━━━━━━━━━━━━\n📖 *{matkul}*\n🕧 Waktu: {jam} WIB\n📍 Ruang: {lokasi}\n👩‍🏫 Dosen: {dosen}\n{tugas}\n━━━━━━━━━━━━━━━\nHarap persiapkan materi dan perlengkapan kelas! 🚀';
 
-        console.log(`[SCHEDULER] Mengirim notifikasi '${type}' untuk matkul '${schedule.course_name}' ke grup: ${targetGroupJid}`);
+          const content = template ? template.content : defaultContent;
+          const messageText = messageService.buildReminderMessage(content, schedule);
 
-        await sendGroupNotification(targetGroupJid, messageText, true);
-        await jadwalService.markReminderSent(schedule.id, type, todayDateStr);
+          console.log(`[SCHEDULER] Mengirim notifikasi '3_hours' untuk matkul '${schedule.course_name}' ke grup: ${targetGroupJid}`);
+          await sendGroupNotification(targetGroupJid, messageText, true);
+          await jadwalService.markReminderSent(schedule.id, '3_hours', todayDateStr);
+        }
       }
     } catch (err) {
       console.error('[SCHEDULER] Gagal memproses pengingat kelas:', err.message);
