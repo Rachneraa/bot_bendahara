@@ -464,9 +464,9 @@ router.post('/members/set-active-week', requireAuth, async (req, res) => {
 
 router.post('/members/add', requireAuth, async (req, res) => {
   try {
-    const { name, phone_number } = req.body;
+    const { name, nim, phone_number } = req.body;
     if (name) {
-      await kasService.addMember({ name, phone_number });
+      await kasService.addMember({ name, nim, phone_number });
     }
     res.redirect('/members');
   } catch (err) {
@@ -495,18 +495,29 @@ router.post('/members/add-bulk', requireAuth, async (req, res) => {
       if (!line) continue;
 
       let name = line;
+      let nim = null;
       let phone_number = null;
 
-      // Cek pemisah koma, tab, atau titik koma (misal: "Ahmad Dani, 081234567890")
+      // Cek pemisah koma, tab, atau titik koma (misal: "10123001, Ahmad Dani" atau "Ahmad Dani, 10123001")
       if (line.includes(',') || line.includes('\t') || line.includes(';')) {
         const delimiter = line.includes('\t') ? '\t' : (line.includes(',') ? ',' : ';');
-        const parts = line.split(delimiter);
-        name = parts[0].trim();
-        phone_number = parts.slice(1).join('').trim() || null;
+        const parts = line.split(delimiter).map(p => p.trim()).filter(Boolean);
+        if (parts.length >= 2) {
+          // Jika kolom pertama adalah angka panjang (NIM), balik urutan
+          if (/^\d{5,}$/.test(parts[0])) {
+            nim = parts[0];
+            name = parts[1];
+            if (parts[2]) phone_number = parts[2];
+          } else {
+            name = parts[0];
+            nim = parts[1];
+            if (parts[2]) phone_number = parts[2];
+          }
+        }
       }
 
       if (name) {
-        parsedList.push({ name, phone_number });
+        parsedList.push({ name, nim, phone_number });
       }
     }
 
@@ -524,9 +535,10 @@ router.post('/members/add-bulk', requireAuth, async (req, res) => {
 router.post('/members/edit/:id', requireAuth, async (req, res) => {
   try {
     const { id } = req.params;
-    const { name, phone_number, is_active } = req.body;
+    const { name, nim, phone_number, is_active } = req.body;
     await kasService.updateMember(id, {
       name,
+      nim,
       phone_number,
       is_active: is_active === '1' || is_active === 'on' || is_active === true
     });

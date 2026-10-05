@@ -52,10 +52,10 @@ export async function getMembers(isActiveOnly = false) {
   return await query(sql);
 }
 
-export async function addMember({ name, phone_number = null }) {
+export async function addMember({ name, nim = null, phone_number = null }) {
   const result = await query(
-    'INSERT INTO members (name, phone_number, is_active) VALUES (?, ?, TRUE)',
-    [name.trim(), phone_number ? phone_number.trim() : null]
+    'INSERT INTO members (name, nim, phone_number, is_active) VALUES (?, ?, ?, TRUE)',
+    [name.trim(), nim ? String(nim).trim() : null, phone_number ? phone_number.trim() : null]
   );
   return result.insertId;
 }
@@ -65,20 +65,57 @@ export async function addBulkMembers(memberList) {
   let count = 0;
   for (const m of memberList) {
     if (!m.name || !m.name.trim()) continue;
-    await query(
-      'INSERT INTO members (name, phone_number, is_active) VALUES (?, ?, TRUE)',
-      [m.name.trim(), m.phone_number ? m.phone_number.trim() : null]
-    );
+    const nameClean = m.name.trim();
+    const nimClean = m.nim ? String(m.nim).trim() : null;
+    const phoneClean = m.phone_number ? String(m.phone_number).trim() : null;
+
+    // Cek apakah mahasiswa dengan nama ini sudah terdaftar
+    const [existing] = await query('SELECT id, nim FROM members WHERE LOWER(TRIM(name)) = LOWER(TRIM(?)) LIMIT 1', [nameClean]);
+    if (existing) {
+      // Jika nama sudah ada dan ada NIM baru, perbarui NIM-nya
+      if (nimClean && nimClean !== existing.nim) {
+        await query('UPDATE members SET nim = ? WHERE id = ?', [nimClean, existing.id]);
+      }
+    } else {
+      // Jika belum ada, buat baru
+      await query(
+        'INSERT INTO members (name, nim, phone_number, is_active) VALUES (?, ?, ?, TRUE)',
+        [nameClean, nimClean, phoneClean]
+      );
+    }
     count++;
   }
   return count;
 }
 
-export async function updateMember(id, { name, phone_number, is_active }) {
+export async function updateMember(id, { name, nim = null, phone_number = null, is_active }) {
   await query(
-    'UPDATE members SET name = ?, phone_number = ?, is_active = ? WHERE id = ?',
-    [name.trim(), phone_number ? phone_number.trim() : null, is_active ? 1 : 0, id]
+    'UPDATE members SET name = ?, nim = ?, phone_number = ?, is_active = ? WHERE id = ?',
+    [name.trim(), nim ? String(nim).trim() : null, phone_number ? phone_number.trim() : null, is_active ? 1 : 0, id]
   );
+}
+
+export async function updateMemberNim(idOrName, nim) {
+  const cleanNim = nim ? String(nim).trim() : null;
+  // Jika input adalah angka murni ID
+  if (/^\d+$/.test(String(idOrName).trim())) {
+    const id = parseInt(idOrName, 10);
+    const [member] = await query('SELECT * FROM members WHERE id = ?', [id]);
+    if (member) {
+      await query('UPDATE members SET nim = ? WHERE id = ?', [cleanNim, id]);
+      return { success: true, member: { ...member, nim: cleanNim } };
+    }
+  }
+
+  // Jika input adalah nama mahasiswa, cari menggunakan fuzzy search
+  const matchResult = await searchMemberFuzzy(idOrName);
+  if (matchResult.status === 'single') {
+    const member = matchResult.matches[0];
+    await query('UPDATE members SET nim = ? WHERE id = ?', [cleanNim, member.id]);
+    return { success: true, member: { ...member, nim: cleanNim } };
+  }
+
+  return { success: false, status: matchResult.status, matches: matchResult.matches || [] };
 }
 
 export async function deleteMember(id) {
@@ -129,6 +166,13 @@ export async function searchMemberFuzzy(keyword) {
 
   if (allMembers.length === 0) {
     return { status: 'not_found', matches: [] };
+  }
+
+  // 0. Exact NIM Match (jika keyword cocok persis dengan NIM mahasiswa)
+  const cleanKeyword = queryClean.replace(/\s+/g, '');
+  const nimMatches = allMembers.filter(m => m.nim && m.nim.toLowerCase().trim() === cleanKeyword);
+  if (nimMatches.length === 1) {
+    return { status: 'single', matches: nimMatches, type: 'nim' };
   }
 
   // 1. Exact Match
@@ -254,6 +298,7 @@ export async function getWeeklyStatus(week_number = null, year = null) {
     SELECT 
       m.id,
       m.name,
+      m.nim,
       m.phone_number,
       m.is_active,
       iw.amount,
@@ -384,6 +429,7 @@ export async function getMonthlyStatus(month = null, year = null, rawInput = '')
     SELECT 
       m.id,
       m.name,
+      m.nim,
       m.phone_number,
       m.is_active,
       COALESCE(SUM(CASE WHEN kt.type = 'masuk' THEN kt.amount ELSE -kt.amount END), 0) AS paid_total,
@@ -393,7 +439,7 @@ export async function getMonthlyStatus(month = null, year = null, rawInput = '')
       ON m.id = kt.member_id 
       AND kt.created_at >= ?
     WHERE m.is_active = TRUE
-    GROUP BY m.id, m.name, m.phone_number, m.is_active
+    GROUP BY m.id, m.name, m.nim, m.phone_number, m.is_active
     ORDER BY m.name ASC
   `, [periodStartSql(monthIdx), periodStartSql(monthIdx + 1), periodStartSql(startIdx)]);
 
@@ -715,6 +761,7 @@ export default {
   addMember,
   addBulkMembers,
   updateMember,
+  updateMemberNim,
   deleteMember,
   findMemberByName,
   searchMemberFuzzy,

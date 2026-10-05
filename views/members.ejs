@@ -66,7 +66,7 @@
         <tr>
           <th>No</th>
           <th>Nama Mahasiswa</th>
-          <th>Nomor WhatsApp</th>
+          <th>NIM</th>
           <th>Status Anggota</th>
           <th>Iuran Minggu Ini</th>
           <th style="text-align: right;">Aksi</th>
@@ -90,10 +90,10 @@
               <strong style="color: #fff;"><%= m.name %></strong>
             </td>
             <td>
-              <% if (m.phone_number) { %>
-                <%= m.phone_number %>
+              <% if (m.nim) { %>
+                <code style="background: rgba(99, 102, 241, 0.15); color: #a5b4fc; padding: 2px 6px; border-radius: 4px; font-weight: 600;"><%= m.nim %></code>
               <% } else { %>
-                <span style="color: var(--text-dim);">-</span>
+                <span style="color: var(--text-dim); font-size: 0.85rem;">-</span>
               <% } %>
             </td>
             <td>
@@ -127,6 +127,7 @@
                   type="button"
                   data-id="<%= m.id %>" 
                   data-name="<%= m.name %>" 
+                  data-nim="<%= m.nim || '' %>"
                   data-phone="<%= m.phone_number || '' %>" 
                   data-active="<%= m.is_active ? 1 : 0 %>" 
                   onclick="openEditMemberModal(this)" 
@@ -162,18 +163,17 @@
       </p>
 
       <div class="form-group">
-        <label for="bulkData">Daftar Nama (1 Nama per Baris)</label>
+        <label for="bulkData">Daftar Mahasiswa (NIM & Nama per Baris)</label>
         <textarea id="bulkData" name="bulk_data" rows="12" style="font-family: inherit; font-size: 0.88rem;" placeholder="Contoh format:
-Ahmad Dahlan
-Budi Santoso
-Citra Lestari
-Dewi Anggraini, 081234567890
-Eko Prasetyo
-... (Bisa langsung paste 40+ nama)" required></textarea>
+10123001, Ahmad Dahlan
+10123002, Budi Santoso
+Citra Lestari, 10123003
+Dewi Anggraini
+... (Bisa langsung paste 40+ mahasiswa)"></textarea>
       </div>
 
       <div style="background: rgba(99, 102, 241, 0.1); border: 1px dashed rgba(99, 102, 241, 0.3); border-radius: var(--radius-sm); padding: 10px 14px; font-size: 0.8rem; color: #c7d2fe; margin-bottom: 16px;">
-        💡 <strong>Tips:</strong> Anda bisa menyertakan nomor HP dengan menambahkan koma setelah nama (contoh: <code>Budi Santoso, 081234567890</code>). Nomor HP bersifat opsional.
+        💡 <strong>Tips Cerdas:</strong> Anda bisa mencantumkan NIM sebelum atau sesudah nama dipisahkan koma/tab (contoh: <code>10123001, Budi Santoso</code> atau <code>Budi Santoso, 10123001</code>). Jika nama mahasiswa sudah terdaftar di database, sistem akan <strong>otomatis meng-update NIM</strong> tanpa menduplikasi data!
       </div>
 
       <div style="display: flex; justify-content: flex-end; gap: 10px;">
@@ -197,8 +197,8 @@ Eko Prasetyo
         <input type="text" id="memberName" name="name" placeholder="Contoh: Budi Santoso" required>
       </div>
       <div class="form-group">
-        <label for="memberPhone">Nomor WhatsApp (Opsional)</label>
-        <input type="text" id="memberPhone" name="phone_number" placeholder="Contoh: 081234567890">
+        <label for="memberNim">NIM (Nomor Induk Mahasiswa)</label>
+        <input type="text" id="memberNim" name="nim" placeholder="Contoh: 10123001">
       </div>
       <div style="display: flex; justify-content: flex-end; gap: 10px; margin-top: 20px;">
         <button type="button" onclick="closeModal('modalAddMember')" class="btn btn-secondary">Batal</button>
@@ -221,8 +221,8 @@ Eko Prasetyo
         <input type="text" id="editName" name="name" required>
       </div>
       <div class="form-group">
-        <label for="editPhone">Nomor WhatsApp</label>
-        <input type="text" id="editPhone" name="phone_number">
+        <label for="editNim">NIM (Nomor Induk Mahasiswa)</label>
+        <input type="text" id="editNim" name="nim" placeholder="Contoh: 10123001">
       </div>
       <div class="form-group" style="flex-direction: row; align-items: center; gap: 10px;">
         <input type="checkbox" id="editActive" name="is_active" value="1" style="width: auto;">
@@ -271,7 +271,7 @@ Eko Prasetyo
     const ds = btn.dataset;
     document.getElementById('formEditMember').action = '/members/edit/' + ds.id;
     document.getElementById('editName').value = ds.name;
-    document.getElementById('editPhone').value = ds.phone;
+    document.getElementById('editNim').value = ds.nim || '';
     document.getElementById('editActive').checked = ds.active === '1';
     openModal('modalEditMember');
   }

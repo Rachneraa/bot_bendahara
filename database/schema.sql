@@ -34,9 +34,12 @@ CREATE TABLE IF NOT EXISTS `message_templates` (
 CREATE TABLE IF NOT EXISTS `members` (
   `id` INT AUTO_INCREMENT PRIMARY KEY,
   `name` VARCHAR(100) NOT NULL,
+  `nim` VARCHAR(30) NULL,
   `phone_number` VARCHAR(20) NULL,
   `is_active` BOOLEAN DEFAULT TRUE,
-  `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+  `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  INDEX `idx_name` (`name`),
+  INDEX `idx_nim` (`nim`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- 5. Tabel Kas Transactions (Buku Kas Masuk & Keluar)

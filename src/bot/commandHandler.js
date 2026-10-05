@@ -166,7 +166,8 @@ export async function handleCommand(sock, messageInfo, isAdmin = false) {
 
   try {
     const args = rawText.trim().split(/\s+/);
-    const subCmd = (args[1] || '').toLowerCase();
+    const firstToken = (args[0] || '').toLowerCase();
+    const subCmd = firstToken === '!tampil' ? 'tampil' : (args[1] || '').toLowerCase();
 
     // Daftar perintah yang memerlukan otorisasi Admin
     const adminCommands = new Set([
@@ -176,7 +177,7 @@ export async function handleCommand(sock, messageInfo, isAdmin = false) {
     ]);
 
     const isKasAdmin = subCmd === 'kas' && ['masuk', 'keluar', 'del', 'hapus', 'reset'].includes((args[2] || '').toLowerCase());
-    const isMemberAdmin = subCmd === 'member' && ['tambah', 'add', 'hapus', 'del'].includes((args[2] || '').toLowerCase());
+    const isMemberAdmin = (subCmd === 'member' && ['tambah', 'add', 'hapus', 'del'].includes((args[2] || '').toLowerCase())) || (subCmd === 'member' && (args[2] || '').toLowerCase() === 'nim' && args[4]);
     const isJadwalAdmin = subCmd === 'jadwal' && ['tambah', 'add', 'hapus', 'del'].includes((args[2] || '').toLowerCase());
 
     const isRestricted = adminCommands.has(subCmd) || isKasAdmin || isMemberAdmin || isJadwalAdmin;
@@ -223,8 +224,10 @@ export async function handleCommand(sock, messageInfo, isAdmin = false) {
 • \`!bot kas mutasi\` : Lihat 10 transaksi terakhir.
 • \`!bot kas status [minggu]\` : Cek iuran mingguan (lunas/belum).
 
-*👥 ANGGOTA KELAS*
+*👥 ANGGOTA KELAS & NIM*
 • \`!bot member list\` : Daftar seluruh anggota kelas.
+• \`!tampil nim\` atau \`!bot member list nim\` : Daftar mahasiswa beserta NIM.
+• \`!bot member nim <nama/id> <nim>\` : Atur/ubah NIM mahasiswa.
 • \`!bot member tambah <nama>\` : Tambah anggota baru.
 
 *📚 JADWAL KULIAH*
@@ -370,19 +373,85 @@ export async function handleCommand(sock, messageInfo, isAdmin = false) {
       break;
     }
 
-    case 'member': {
-      const action = (args[2] || '').toLowerCase();
-      if (action === 'list') {
+    case 'tampil': {
+      const target = (firstToken === '!tampil' ? args[1] : args[2] || '').toLowerCase();
+      if (target === 'nim') {
         const members = await kasService.getMembers();
         if (members.length === 0) {
           await reply('ℹ️ Belum ada anggota kelas yang terdaftar.');
           return;
         }
-        let listText = `📋 *DAFTAR ANGGOTA KELAS (${members.length})*\n\n`;
+        let listText = `📋 *DAFTAR MAHASISWA & NIM (${members.length})*\n\n`;
         members.forEach((m, idx) => {
-          listText += `${idx + 1}. [ID: ${m.id}] *${m.name}* ${m.is_active ? '' : '(Nonaktif)'}\n`;
+          const nimTag = m.nim ? `[${m.nim}]` : `[-]`;
+          listText += `${idx + 1}. ${nimTag} *${m.name}* ${m.is_active ? '' : '(Nonaktif)'}\n`;
         });
         await reply(listText.trim());
+      } else {
+        await reply('❌ Format perintah salah! Gunakan: `!tampil nim`');
+      }
+      break;
+    }
+
+    case 'member': {
+      const action = (args[2] || '').toLowerCase();
+      if (action === 'list') {
+        const isNimMode = (args[3] || '').toLowerCase() === 'nim';
+        const members = await kasService.getMembers();
+        if (members.length === 0) {
+          await reply('ℹ️ Belum ada anggota kelas yang terdaftar.');
+          return;
+        }
+        let listText = isNimMode 
+          ? `📋 *DAFTAR MAHASISWA & NIM (${members.length})*\n\n`
+          : `📋 *DAFTAR ANGGOTA KELAS (${members.length})*\n\n`;
+
+        members.forEach((m, idx) => {
+          if (isNimMode) {
+            const nimTag = m.nim ? `[${m.nim}]` : `[-]`;
+            listText += `${idx + 1}. ${nimTag} *${m.name}* ${m.is_active ? '' : '(Nonaktif)'}\n`;
+          } else {
+            listText += `${idx + 1}. [ID: ${m.id}] *${m.name}* ${m.is_active ? '' : '(Nonaktif)'}\n`;
+          }
+        });
+        await reply(listText.trim());
+      } else if (action === 'nim') {
+        const targetParam = args[3];
+        const nimParam = args[4];
+
+        // Jika hanya !bot member nim tanpa parameter, tampilkan list ber-NIM
+        if (!targetParam) {
+          const members = await kasService.getMembers();
+          if (members.length === 0) {
+            await reply('ℹ️ Belum ada anggota kelas yang terdaftar.');
+            return;
+          }
+          let listText = `📋 *DAFTAR MAHASISWA & NIM (${members.length})*\n\n`;
+          members.forEach((m, idx) => {
+            const nimTag = m.nim ? `[${m.nim}]` : `[-]`;
+            listText += `${idx + 1}. ${nimTag} *${m.name}* ${m.is_active ? '' : '(Nonaktif)'}\n`;
+          });
+          await reply(listText.trim());
+          return;
+        }
+
+        if (!nimParam) {
+          await reply('❌ Format salah!\nGunakan: `!bot member nim <nama/id> <nim>`\nContoh: `!bot member nim kiki 10123026`');
+          return;
+        }
+
+        const res = await kasService.updateMemberNim(targetParam, nimParam);
+        if (res.success) {
+          await reply(`✅ Berhasil! NIM untuk *${res.member.name}* telah diatur menjadi *${res.member.nim}*.`);
+        } else if (res.status === 'ambiguous') {
+          const candList = res.matches.map((c, i) => `${i + 1}. *${c.name}* (ID: ${c.id})`).join('\n');
+          await reply(
+            `⚠️ Ditemukan beberapa nama yang mirip dengan "*${targetParam}*":\n${candList}\n\n` +
+            `Gunakan ID untuk lebih spesifik, contoh:\n\`!bot member nim ${res.matches[0].id} ${nimParam}\``
+          );
+        } else {
+          await reply(`❌ Mahasiswa dengan nama/ID "*${targetParam}*" tidak ditemukan.`);
+        }
       } else if (action === 'tambah') {
         const raw = args.slice(3).join(' ');
         if (!raw) {
@@ -398,7 +467,7 @@ export async function handleCommand(sock, messageInfo, isAdmin = false) {
           await reply(`✅ Berhasil menambahkan *${count} mahasiswa* sekaligus ke kelas!`);
         }
       } else {
-        await reply('❌ Format salah! Pilihan: `!bot member list` atau `!bot member tambah <nama>`');
+        await reply('❌ Format salah! Pilihan:\n`!bot member list`\n`!tampil nim` (atau `!bot member list nim`)\n`!bot member nim <nama> <nim>`\n`!bot member tambah <nama>`');
       }
       break;
     }

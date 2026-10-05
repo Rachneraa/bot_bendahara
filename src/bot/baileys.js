@@ -339,8 +339,8 @@ export async function initBaileys() {
             }
           }
 
-          // Hanya proses pesan yang diawali '!bot'
-          if (!trimmed.startsWith('!bot')) {
+          // Hanya proses pesan yang diawali '!bot' atau '!tampil'
+          if (!trimmed.startsWith('!bot') && !trimmed.startsWith('!tampil')) {
             continue;
           }
 
