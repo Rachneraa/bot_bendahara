@@ -23,47 +23,123 @@ export function parseScheduleLines(rawText) {
   const textWithoutCmd = rawText.replace(/^!bot\s+jadwal\s+tambah\s*/i, '').trim();
   if (!textWithoutCmd) return [];
 
-  const rawLines = textWithoutCmd.split(/\r?\n/).map(l => l.trim()).filter(Boolean);
-  const schedules = [];
   const validDays = ['senin', 'selasa', 'rabu', 'kamis', 'jumat', 'sabtu', 'minggu'];
 
-  for (const rawLine of rawLines) {
-    const cleanLine = rawLine
-      .replace(/^[\d]+[\.\)\-\s]+\s*/, '')
-      .replace(/^[\*\-\•\–\—]\s*/, '')
-      .trim();
+  // 1. Jika teks berformat pipa '|'
+  if (textWithoutCmd.includes('|')) {
+    const rawLines = textWithoutCmd.split(/\r?\n/).map(l => l.trim()).filter(Boolean);
+    const schedules = [];
 
-    if (!cleanLine) continue;
-    const parts = cleanLine.split('|');
-    if (parts.length < 4) continue;
+    for (const rawLine of rawLines) {
+      const cleanLine = rawLine
+        .replace(/^[\d]+[\.\)\-\s]+\s*/, '')
+        .replace(/^[*•\s-]+/, '')
+        .trim();
 
-    const day = parts[0].trim().toLowerCase();
-    if (!validDays.includes(day)) continue;
+      if (!cleanLine) continue;
+      const parts = cleanLine.split('|');
+      if (parts.length < 4) continue;
 
-    const timeParts = parts[1].trim().split('-');
-    if (timeParts.length !== 2) continue;
+      const day = parts[0].trim().toLowerCase();
+      if (!validDays.includes(day)) continue;
 
-    const startTimeRaw = timeParts[0].trim();
-    const endTimeRaw = timeParts[1].trim();
+      const timeParts = parts[1].trim().split('-');
+      if (timeParts.length !== 2) continue;
 
-    const startTime = startTimeRaw.length === 5 ? `${startTimeRaw}:00` : startTimeRaw;
-    const endTime = endTimeRaw.length === 5 ? `${endTimeRaw}:00` : endTimeRaw;
+      const startTimeRaw = timeParts[0].trim().replace(/\./g, ':');
+      const endTimeRaw = timeParts[1].trim().replace(/\./g, ':');
 
-    const courseName = parts[2].trim();
-    const lecturer = parts[3].trim();
-    const note = parts[4] ? parts[4].trim() : '';
+      const startTime = startTimeRaw.length === 5 ? `${startTimeRaw}:00` : (startTimeRaw.length === 4 ? `0${startTimeRaw}:00` : startTimeRaw);
+      const endTime = endTimeRaw.length === 5 ? `${endTimeRaw}:00` : (endTimeRaw.length === 4 ? `0${endTimeRaw}:00` : endTimeRaw);
 
-    schedules.push({
-      day_of_week: day,
-      start_time: startTime,
-      end_time: endTime,
-      course_name: courseName,
-      lecturer,
-      note,
-      originalLine: rawLine
-    });
+      schedules.push({
+        day_of_week: day,
+        start_time: startTime,
+        end_time: endTime,
+        course_name: parts[2].trim(),
+        lecturer: parts[3].trim(),
+        note: parts[4] ? parts[4].trim() : ''
+      });
+    }
+    if (schedules.length > 0) return schedules;
   }
 
+  // 2. Parser cerdas untuk format natural / emoji (seperti pesan WA jadwal kelas)
+  const lines = textWithoutCmd.split(/\r?\n/).map(l => l.trim()).filter(Boolean);
+  const schedules = [];
+
+  let currentDay = null;
+  let currentItem = null;
+
+  function pushCurrent() {
+    if (currentItem && currentItem.course_name && currentItem.start_time && currentItem.end_time) {
+      schedules.push({
+        day_of_week: currentItem.day_of_week,
+        start_time: currentItem.start_time,
+        end_time: currentItem.end_time,
+        course_name: currentItem.course_name,
+        lecturer: currentItem.lecturer || '-',
+        note: [currentItem.location, currentItem.mode].filter(Boolean).join(' • ')
+      });
+    }
+    currentItem = null;
+  }
+
+  for (const line of lines) {
+    const dayMatch = line.toLowerCase().replace(/[\*\_:\#-]/g, '').trim();
+    if (validDays.includes(dayMatch)) {
+      pushCurrent();
+      currentDay = dayMatch;
+      continue;
+    }
+
+    if (!currentDay) continue;
+
+    const timeMatch = line.match(/(\d{1,2})[\.:](\d{2})\s*(?:s\.?d\.?|sampai|\-)\s*(\d{1,2})[\.:](\d{2})/i);
+    if (timeMatch) {
+      if (!currentItem) currentItem = { day_of_week: currentDay };
+      const h1 = String(timeMatch[1]).padStart(2, '0');
+      const m1 = String(timeMatch[2]).padStart(2, '0');
+      const h2 = String(timeMatch[3]).padStart(2, '0');
+      const m2 = String(timeMatch[4]).padStart(2, '0');
+      currentItem.start_time = `${h1}:${m1}:00`;
+      currentItem.end_time = `${h2}:${m2}:00`;
+      continue;
+    }
+
+    if (line.includes('📍') || /^(?:ruang|r\d+|gedung)/i.test(line)) {
+      if (!currentItem) currentItem = { day_of_week: currentDay };
+      currentItem.location = line.replace(/^[📍*•\s-]+/u, '').trim();
+      continue;
+    }
+
+    if (line.includes('💼') || /^(?:tatap muka|praktikum|online|hybrid)/i.test(line)) {
+      if (!currentItem) currentItem = { day_of_week: currentDay };
+      currentItem.mode = line.replace(/^[💼*•\s-]+/u, '').trim();
+      continue;
+    }
+
+    if (/[\u{1F468}\u{1F469}]/u.test(line) || /^dosen\s*[:\-]/i.test(line)) {
+      if (!currentItem) currentItem = { day_of_week: currentDay };
+      currentItem.lecturer = line.replace(/^[👩👨🏫\u{1F468}\u{1F469}\u{1F3EB}\u200D*•\s-]+|[Dd]osen\s*[:\-]\s*/u, '').trim();
+      continue;
+    }
+
+    if (/saran|mending|perhatian|note/i.test(line) && !line.includes('-')) {
+      continue;
+    }
+
+    if (/^[\-*•\d]/.test(line)) {
+      pushCurrent();
+      currentItem = { day_of_week: currentDay };
+      let cleaned = line.replace(/^[*•\s-]+/, '').replace(/^[*_]|[*_]$/g, '').trim();
+      cleaned = cleaned.replace(/^\d{4,6}\s*[-:.]\s*/, '').trim();
+      currentItem.course_name = cleaned;
+      continue;
+    }
+  }
+
+  pushCurrent();
   return schedules;
 }
 
@@ -1033,24 +1109,40 @@ export async function handleCommand(sock, messageInfo, isAdmin = false) {
           outText += `🎉 _Tidak ada perkuliahan hari ini!_\n\n`;
         } else {
           todaySchedules.forEach((s) => {
-            outText += `⏰ *${formatter.formatTime(s.start_time)} - ${formatter.formatTime(s.end_time)}*\n`;
-            outText += `📖 *${s.course_name}*\n`;
-            outText += `👨‍🏫 Dosen: ${s.lecturer}\n`;
-            if (s.note) outText += `📝 Ruang/Ket: ${s.note}\n`;
-            if (s.temp_note) outText += `📌 *Tugas/Bawaan (Pertemuan Ini)*: ${s.temp_note}\n`;
+            outText += `• 📖 *${s.course_name}*\n`;
+            outText += `  🕧 ${formatter.formatTime(s.start_time)} s.d ${formatter.formatTime(s.end_time)} WIB\n`;
+            if (s.note) outText += `  📍 ${s.note}\n`;
+            outText += `  👩‍🏫 ${s.lecturer}\n`;
+            if (s.temp_note) outText += `  📌 *Tugas/Bawaan:* ${s.temp_note}\n`;
             outText += `\n`;
           });
         }
 
-        outText += `🗓️ *SELURUH JADWAL MINGGUAN:*\n`;
+        outText += `🗓️ *SELURUH JADWAL PERKULIAHAN*\n\n`;
         if (allSchedules.length === 0) {
           outText += `_Belum ada jadwal yang terdaftar._`;
         } else {
-          allSchedules.forEach((s) => {
-            outText += `• [ID: ${s.id}] *${s.day_of_week.toUpperCase()}* (${formatter.formatTime(s.start_time)}-${formatter.formatTime(s.end_time)}) : *${s.course_name}* (${s.lecturer})`;
-            if (s.temp_note) outText += ` [📌 Tugas: ${s.temp_note}]`;
-            outText += `\n`;
-          });
+          const dayOrder = ['senin', 'selasa', 'rabu', 'kamis', 'jumat', 'sabtu', 'minggu'];
+          const grouped = {};
+          for (const s of allSchedules) {
+            const d = s.day_of_week.toLowerCase();
+            if (!grouped[d]) grouped[d] = [];
+            grouped[d].push(s);
+          }
+
+          for (const d of dayOrder) {
+            if (grouped[d] && grouped[d].length > 0) {
+              outText += `*${d.toUpperCase()}*\n\n`;
+              for (const s of grouped[d]) {
+                outText += `• 📖 *${s.course_name}*\n`;
+                outText += `  🕧 ${formatter.formatTime(s.start_time)} s.d ${formatter.formatTime(s.end_time)} WIB\n`;
+                if (s.note) outText += `  📍 ${s.note}\n`;
+                outText += `  👩‍🏫 ${s.lecturer}\n`;
+                if (s.temp_note) outText += `  📌 *Tugas/Bawaan:* ${s.temp_note}\n`;
+                outText += `\n`;
+              }
+            }
+          }
         }
 
         await reply(outText.trim());
@@ -1061,49 +1153,71 @@ export async function handleCommand(sock, messageInfo, isAdmin = false) {
 
         if (parsed.length === 0) {
           await reply(
-            `❌ Format salah!\n\n` +
-            `*Contoh 1 Jadwal:*\n` +
-            `\`!bot jadwal tambah senin|08:00-10:00|Kalkulus|Dr. Bambang|Ruang 301\`\n\n` +
-            `*Contoh Banyak Jadwal Sekaligus:*\n` +
+            `❌ Format tidak terbaca!\n\n` +
+            `*Contoh Format Bebas / Rapi:*\n` +
             `!bot jadwal tambah\n` +
-            `- senin|08:00-10:00|Kalkulus|Dr. Bambang|Ruang 301\n` +
-            `- selasa|10:00-12:00|Algoritma|Bu Siti|Lab 2\n` +
-            `- rabu|13:00-15:00|Basis Data|Pak Joko`
+            `*SENIN*\n` +
+            `- Kalkulus\n` +
+            `🕧 07.00 s.d 09.30\n` +
+            `📍 R5406 (Gedung Miracle)\n` +
+            `💼 Tatap muka\n` +
+            `👩‍🏫 Kania Evita Dewi, S.Pd., M.Si\n\n` +
+            `*Atau Format Ringkas (Pipa):*\n` +
+            `\`!bot jadwal tambah senin|07:00-09:30|Kalkulus|Kania Evita Dewi|R5406\``
           );
           return;
         }
 
         if (parsed.length === 1) {
           const s = parsed[0];
-          const newId = await jadwalService.addSchedule(s);
+          await jadwalService.addSchedule(s);
           await reply(
             `✅ *JADWAL BERHASIL DITAMBAHKAN!*\n\n` +
-            `ID: *${newId}*\n` +
-            `Hari: *${s.day_of_week.toUpperCase()}*\n` +
-            `Jam: *${formatter.formatTime(s.start_time)} - ${formatter.formatTime(s.end_time)}*\n` +
-            `Matkul: *${s.course_name}*\n` +
-            `Dosen: *${s.lecturer}*\n` +
-            `Catatan: *${s.note || '-'}*`
+            `*${s.day_of_week.toUpperCase()}*\n` +
+            `• 📖 *${s.course_name}*\n` +
+            `  🕧 ${formatter.formatTime(s.start_time)} s.d ${formatter.formatTime(s.end_time)} WIB\n` +
+            (s.note ? `  📍 ${s.note}\n` : '') +
+            `  👩‍🏫 ${s.lecturer}`
           );
         } else {
           const inserted = await jadwalService.addBulkSchedules(parsed);
-          let replyMsg = `✅ *BERHASIL MENAMBAHKAN ${inserted.length} JADWAL KULIAH SEKALIGUS!*\n\n`;
-          inserted.forEach((s, idx) => {
-            replyMsg += `${idx + 1}. [ID: ${s.id}] *${s.day_of_week.toUpperCase()}* (${formatter.formatTime(s.start_time)}-${formatter.formatTime(s.end_time)}) : *${s.course_name}* (${s.lecturer})\n`;
-          });
-          replyMsg += `\nKetik \`!bot jadwal\` untuk melihat seluruh jadwal kuliah.`;
+          let replyMsg = `✅ *BERHASIL MENAMBAHKAN ${inserted.length} JADWAL KULIAH!*\n\n`;
+          const dayOrder = ['senin', 'selasa', 'rabu', 'kamis', 'jumat', 'sabtu', 'minggu'];
+          const grouped = {};
+          for (const s of inserted) {
+            const d = s.day_of_week.toLowerCase();
+            if (!grouped[d]) grouped[d] = [];
+            grouped[d].push(s);
+          }
+
+          for (const d of dayOrder) {
+            if (grouped[d] && grouped[d].length > 0) {
+              replyMsg += `*${d.toUpperCase()}*\n`;
+              for (const s of grouped[d]) {
+                replyMsg += `• *${s.course_name}* (${formatter.formatTime(s.start_time)} s.d ${formatter.formatTime(s.end_time)} WIB)\n`;
+                if (s.note) replyMsg += `  📍 ${s.note}\n`;
+              }
+              replyMsg += `\n`;
+            }
+          }
+          replyMsg += `Ketik \`!bot jadwal\` untuk melihat jadwal lengkap.`;
           await reply(replyMsg.trim());
         }
       } else if (action === 'hapus') {
-        const id = parseInt(args[3], 10);
-        if (!id) {
-          await reply('❌ Masukkan ID jadwal yang ingin dihapus.\nContoh: `!bot jadwal hapus 3`');
+        const queryStr = args.slice(3).join(' ').trim();
+        if (!queryStr) {
+          await reply('❌ Masukkan nama mata kuliah yang ingin dihapus.\nContoh: `!bot jadwal hapus kalkulus`');
           return;
         }
-        await jadwalService.deleteSchedule(id);
-        await reply(`✅ Jadwal dengan ID *${id}* berhasil dihapus.`);
+        const s = await jadwalService.findScheduleByQuery(queryStr);
+        if (!s) {
+          await reply(`❌ Jadwal untuk "${queryStr}" tidak ditemukan.\nKetik \`!bot jadwal\` untuk melihat daftar jadwal.`);
+          return;
+        }
+        await jadwalService.deleteSchedule(s.id);
+        await reply(`✅ Jadwal perkuliahan *${s.course_name}* (${s.day_of_week.toUpperCase()}) berhasil dihapus.`);
       } else {
-        await reply('❌ Perintah jadwal tidak dikenali.\nPilihan:\n`!bot jadwal`\n`!bot jadwal tambah <hari>|<jam>|<matkul>|<dosen>|<note>`\n`!bot jadwal hapus <id>`\n`!bot tugas <matkul/id> <catatan>`');
+        await reply('❌ Perintah jadwal tidak dikenali.\nPilihan:\n`!bot jadwal`\n`!bot jadwal tambah <format>`\n`!bot jadwal hapus <nama matkul>`\n`!bot tugas <matkul> <catatan>`');
       }
       break;
     }
