@@ -81,6 +81,8 @@ CREATE TABLE IF NOT EXISTS `schedules` (
   `course_name` VARCHAR(150) NOT NULL,
   `lecturer` VARCHAR(150) NOT NULL,
   `note` TEXT NULL,
+  `temp_note` TEXT NULL,
+  `temp_note_date` DATE NULL,
   `is_active` BOOLEAN DEFAULT TRUE,
   `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   INDEX `idx_day_time` (`day_of_week`, `start_time`)

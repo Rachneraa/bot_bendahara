@@ -51,9 +51,24 @@
             <td><%= s.lecturer %></td>
             <td>
               <% if (s.note) { %>
-                <%= s.note %>
+                <div><%= s.note %></div>
               <% } else { %>
                 <span style="color: var(--text-dim);">-</span>
+              <% } %>
+              <% if (s.temp_note) { %>
+                <div style="margin-top: 6px; font-size: 0.8rem; background: rgba(245, 158, 11, 0.15); border: 1px solid rgba(245, 158, 11, 0.35); border-radius: 6px; padding: 5px 8px; color: #fde047;">
+                  <div style="font-weight: 700; display: flex; align-items: center; gap: 4px;">
+                    <span>📌</span> Tugas (1x Pakai):
+                  </div>
+                  <div style="color: #fff; margin-top: 2px;"><%= s.temp_note %></div>
+                  <% if (s.temp_note_date) { 
+                       const tDate = new Date(s.temp_note_date);
+                  %>
+                    <div style="font-size: 0.72rem; color: #cbd5e1; margin-top: 3px;">
+                      Batas: <%= formatter.formatDateIndo(tDate) %> (<%= formatter.formatTime(s.end_time) %> WIB)
+                    </div>
+                  <% } %>
+                </div>
               <% } %>
             </td>
             <td>
@@ -65,6 +80,17 @@
             </td>
             <td style="text-align: right;">
               <div style="display: inline-flex; gap: 8px;">
+                <button 
+                  type="button"
+                  data-id="<%= s.id %>"
+                  data-course="<%= s.course_name %>"
+                  data-tempnote="<%= s.temp_note || '' %>"
+                  onclick="openTaskModal(this)"
+                  class="btn btn-secondary btn-sm" 
+                  style="background: rgba(245, 158, 11, 0.2); border-color: rgba(245, 158, 11, 0.4); color: #fbbf24;"
+                  title="Atur Catatan Tugas / Bawaan (1x Pakai)">
+                  📌 Tugas 1x
+                </button>
                 <button 
                   type="button"
                   data-id="<%= s.id %>"
@@ -222,6 +248,67 @@
     document.getElementById('editActive').checked = ds.active === '1';
     openModal('modalEditSchedule');
   }
+
+  let currentTaskScheduleId = null;
+
+  function openTaskModal(btn) {
+    const ds = btn.dataset;
+    currentTaskScheduleId = ds.id;
+    document.getElementById('formTaskNote').action = '/schedules/task-note/' + ds.id;
+    document.getElementById('taskCourseName').textContent = ds.course;
+    document.getElementById('inputTempNote').value = ds.tempnote || '';
+    
+    const delBtn = document.getElementById('btnDeleteTaskNote');
+    if (ds.tempnote && ds.tempnote.trim() !== '') {
+      delBtn.style.display = 'inline-block';
+    } else {
+      delBtn.style.display = 'none';
+    }
+    openModal('modalTaskNote');
+  }
+
+  function clearTaskNote() {
+    if (!currentTaskScheduleId) return;
+    if (confirm('Hapus catatan tugas 1x pakai untuk matkul ini?')) {
+      const f = document.getElementById('formClearTaskNote');
+      f.action = '/schedules/task-note/' + currentTaskScheduleId + '/clear';
+      f.submit();
+    }
+  }
 </script>
+
+<!-- Modal Catatan Tugas / Bawaan (1x Pakai) -->
+<div class="modal-overlay" id="modalTaskNote">
+  <div class="modal-content">
+    <div class="card-header">
+      <h3 class="card-title">📌 Atur Catatan Tugas / Bawaan (1x Pakai)</h3>
+      <button onclick="closeModal('modalTaskNote')" style="background: none; border: none; color: var(--text-muted); cursor: pointer; font-size: 1.2rem;">✕</button>
+    </div>
+    <form id="formTaskNote" method="POST">
+      <div style="margin-bottom: 16px; padding: 12px 14px; background: rgba(99, 102, 241, 0.12); border-left: 3px solid #6366f1; border-radius: 6px; font-size: 0.85rem; color: #c7d2fe;">
+        <div>Mata Kuliah: <strong id="taskCourseName" style="color: #fff; font-size: 0.95rem;"></strong></div>
+        <div style="font-size: 0.78rem; opacity: 0.85; margin-top: 4px;">
+          Catatan ini hanya berlaku 1x untuk pertemuan terdekat dan akan otomatis terhapus saat jam selesai kuliah lewat.
+        </div>
+      </div>
+
+      <div class="form-group">
+        <label for="inputTempNote">Catatan Tugas / Barang Bawaan Khusus</label>
+        <textarea id="inputTempNote" name="temp_note" rows="3" placeholder="Contoh: Bawa modul bab 3 & laptop terinstall Node.js" required style="width: 100%; border-radius: var(--radius-sm); padding: 10px; background: rgba(0,0,0,0.3); border: 1px solid var(--border-color); color: #fff;"></textarea>
+      </div>
+
+      <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 20px;">
+        <button type="button" id="btnDeleteTaskNote" onclick="clearTaskNote()" class="btn btn-danger btn-sm" style="display: none;">
+          🗑️ Hapus Catatan
+        </button>
+        <div style="display: flex; gap: 10px; margin-left: auto;">
+          <button type="button" onclick="closeModal('modalTaskNote')" class="btn btn-secondary">Batal</button>
+          <button type="submit" class="btn btn-primary">Simpan Catatan</button>
+        </div>
+      </div>
+    </form>
+    <form id="formClearTaskNote" method="POST" style="display: none;"></form>
+  </div>
+</div>
 
 <%- include('layout/footer') %>

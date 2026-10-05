@@ -153,6 +153,126 @@ export async function handleInteractiveChoice(sock, messageInfo, sessionKey) {
   return true;
 }
 
+export async function handleTugasCommand(rawText, args, reply) {
+  const action = (args[2] || '').toLowerCase();
+
+  // 1. Tampilkan daftar tugas aktif jika tanpa argumen atau '!bot tugas list'
+  if (!action || action === 'list') {
+    const activeTasks = await jadwalService.getActiveTasks();
+
+    if (activeTasks.length === 0) {
+      await reply(
+        `🎉 *TIDAK ADA TUGAS / BARANG BAWAAN* 🎉\n\n` +
+        `_Saat ini belum ada catatan tugas atau barang khusus yang harus dibawa untuk semua perkuliahan. Kuliah berjalan seperti biasa!_ 🚀\n\n` +
+        `💡 _Admin dapat menambah catatan dengan:_ \n\`!bot tugas <matkul/id> <catatan>\``
+      );
+      return;
+    }
+
+    let out = `📌 *DAFTAR TUGAS & BARANG BAWAAN KELAS* 📌\n\n`;
+    activeTasks.forEach((s, idx) => {
+      const dateStr = s.temp_note_date
+        ? formatter.formatDateIndo(new Date(s.temp_note_date))
+        : s.day_of_week.toUpperCase();
+      out += `${idx + 1}. 📖 *${s.course_name}* (${s.lecturer})\n`;
+      out += `   🗓️ Pertemuan: *${dateStr}* (${formatter.formatTime(s.start_time)} - ${formatter.formatTime(s.end_time)} WIB)\n`;
+      if (s.note) out += `   📝 Ruangan/Lokasi: ${s.note}\n`;
+      out += `   📌 *Tugas/Bawaan*: ${s.temp_note}\n\n`;
+    });
+
+    out += `💡 _Catatan di atas berlaku 1x dan akan otomatis terhapus setelah jam kuliah selesai._`;
+    await reply(out.trim());
+    return;
+  }
+
+  // 2. Hapus catatan tugas: !bot tugas hapus <matkul/id>
+  if (action === 'hapus' || action === 'clear' || action === 'del') {
+    const targetQuery = args.slice(3).join(' ').trim();
+    if (!targetQuery) {
+      await reply('❌ Masukkan nama mata kuliah atau ID jadwal yang ingin dihapus catatan tugasnya.\nContoh: `!bot tugas hapus kalkulus` atau `!bot tugas hapus 1`');
+      return;
+    }
+
+    const schedule = await jadwalService.findScheduleByQuery(targetQuery);
+    if (!schedule) {
+      await reply(`❌ Jadwal untuk mata kuliah / ID "${targetQuery}" tidak ditemukan.\nKetik \`!bot jadwal\` untuk melihat daftar jadwal.`);
+      return;
+    }
+
+    await jadwalService.clearTempNote(schedule.id);
+    await reply(`✅ Catatan tugas/bawaan untuk mata kuliah *${schedule.course_name}* berhasil dihapus/dibersihkan.`);
+    return;
+  }
+
+  // 3. Tambah atau update catatan tugas: !bot tugas <matkul/id> <catatan>
+  const textAfterCmd = rawText.replace(/^!bot\s+(?:jadwal\s+)?tugas\s*/i, '').trim();
+  let targetQuery = '';
+  let noteContent = '';
+
+  if (textAfterCmd.includes('|')) {
+    const parts = textAfterCmd.split('|');
+    targetQuery = parts[0].trim();
+    noteContent = parts.slice(1).join('|').trim();
+  } else if (/^\d+$/.test(args[2])) {
+    targetQuery = args[2];
+    noteContent = args.slice(3).join(' ').trim();
+  } else {
+    // Cari matkul yang paling cocok dari daftar jadwal
+    const allSchedules = await jadwalService.getAllSchedules();
+    const sorted = [...allSchedules].sort((a, b) => b.course_name.length - a.course_name.length);
+    let matched = null;
+
+    for (const s of sorted) {
+      const cLower = s.course_name.toLowerCase();
+      const textLower = textAfterCmd.toLowerCase();
+      if (textLower.startsWith(cLower)) {
+        matched = s;
+        targetQuery = s.id;
+        noteContent = textAfterCmd.slice(cLower.length).trim();
+        break;
+      }
+    }
+
+    if (!matched) {
+      targetQuery = args[2];
+      noteContent = args.slice(3).join(' ').trim();
+    }
+  }
+
+  if (!noteContent) {
+    await reply(
+      `❌ Masukkan catatan tugas atau barang yang harus dibawa.\n\n` +
+      `*Contoh Penggunaan:*\n` +
+      `• \`!bot tugas kalkulus bawa modul bab 3 & kalkulator\`\n` +
+      `• \`!bot tugas pemrograman web | bawa laptop terinstall nodejs\`\n` +
+      `• \`!bot tugas 1 bawa modul\`\n\n` +
+      `*Untuk Menghapus Tugas:*\n` +
+      `• \`!bot tugas hapus kalkulus\``
+    );
+    return;
+  }
+
+  const schedule = await jadwalService.findScheduleByQuery(String(targetQuery));
+  if (!schedule) {
+    await reply(`❌ Jadwal mata kuliah "${targetQuery}" tidak ditemukan.\nKetik \`!bot jadwal\` untuk melihat daftar mata kuliah yang terdaftar.`);
+    return;
+  }
+
+  const res = await jadwalService.setTempNote(schedule.id, noteContent);
+  const meetingDateStr = res.temp_note_date
+    ? formatter.formatDateIndo(new Date(res.temp_note_date))
+    : schedule.day_of_week.toUpperCase();
+
+  await reply(
+    `✅ *CATATAN TUGAS / BAWAAN BERHASIL DISIMPAN!*\n\n` +
+    `📖 *Mata Kuliah* : ${schedule.course_name}\n` +
+    `👨‍🏫 *Dosen*       : ${schedule.lecturer}\n` +
+    `🗓️ *Pertemuan*   : ${meetingDateStr} (${formatter.formatTime(schedule.start_time)} - ${formatter.formatTime(schedule.end_time)} WIB)\n` +
+    `📌 *Tugas/Bawaan* : ${res.temp_note}\n\n` +
+    `_Catatan ini berlaku 1x dan akan otomatis terhapus setelah jam kuliah selesai._`
+  );
+}
+
 export async function handleCommand(sock, messageInfo, isAdmin = false) {
   const { rawText, fromJid, isGroup, groupJid, senderNumber, senderJid } = messageInfo;
   const reply = async (text, mentions = []) => {
@@ -176,11 +296,12 @@ export async function handleCommand(sock, messageInfo, isAdmin = false) {
       'test'
     ]);
 
-    const isKasAdmin = subCmd === 'kas' && ['masuk', 'keluar', 'del', 'hapus', 'reset'].includes((args[2] || '').toLowerCase());
+    const isKasAdmin = subCmd === 'kas' && ['masuk', 'keluar', 'del', 'hapus', 'reset', 'koreksi'].includes((args[2] || '').toLowerCase());
     const isMemberAdmin = (subCmd === 'member' && ['tambah', 'add', 'hapus', 'del'].includes((args[2] || '').toLowerCase())) || (subCmd === 'member' && (args[2] || '').toLowerCase() === 'nim' && args[4]);
     const isJadwalAdmin = subCmd === 'jadwal' && ['tambah', 'add', 'hapus', 'del'].includes((args[2] || '').toLowerCase());
+    const isTugasAdmin = (subCmd === 'tugas' && args[2] && !['list'].includes(args[2].toLowerCase())) || (subCmd === 'jadwal' && (args[2] || '').toLowerCase() === 'tugas' && args[3] && !['list'].includes(args[3].toLowerCase()));
 
-    const isRestricted = adminCommands.has(subCmd) || isKasAdmin || isMemberAdmin || isJadwalAdmin;
+    const isRestricted = adminCommands.has(subCmd) || isKasAdmin || isMemberAdmin || isJadwalAdmin || isTugasAdmin;
 
     if (isRestricted && !isAdmin) {
       await reply(
@@ -235,6 +356,12 @@ export async function handleCommand(sock, messageInfo, isAdmin = false) {
 • \`!bot jadwal tambah <hari>|<jam>|<matkul>|<dosen>|<note>\`
   _Contoh: \`!bot jadwal tambah senin|08:00-10:00|Kalkulus|Pak Budi|Bawa tugas 1\`_
 • \`!bot jadwal hapus <id>\` : Hapus jadwal kuliah berdasarkan ID.
+
+*📌 TUGAS & BARANG BAWAAN (1X PAKAI)*
+• \`!bot tugas\` : Lihat seluruh daftar tugas & barang bawaan aktif.
+• \`!bot tugas <matkul/id> <catatan>\` : Set tugas/bawaan 1x pertemuan berikutnya (Admin).
+  _Contoh: \`!bot tugas kalkulus bawa modul bab 3 & kalkulator\`_
+• \`!bot tugas hapus <matkul/id>\` : Hapus catatan tugas (Admin).
 
 🌐 _Anda juga dapat mengelola data lewat Web Dashboard._
 `.trim();
@@ -909,7 +1036,8 @@ export async function handleCommand(sock, messageInfo, isAdmin = false) {
             outText += `⏰ *${formatter.formatTime(s.start_time)} - ${formatter.formatTime(s.end_time)}*\n`;
             outText += `📖 *${s.course_name}*\n`;
             outText += `👨‍🏫 Dosen: ${s.lecturer}\n`;
-            if (s.note) outText += `📝 Note: ${s.note}\n`;
+            if (s.note) outText += `📝 Ruang/Ket: ${s.note}\n`;
+            if (s.temp_note) outText += `📌 *Tugas/Bawaan (Pertemuan Ini)*: ${s.temp_note}\n`;
             outText += `\n`;
           });
         }
@@ -919,11 +1047,15 @@ export async function handleCommand(sock, messageInfo, isAdmin = false) {
           outText += `_Belum ada jadwal yang terdaftar._`;
         } else {
           allSchedules.forEach((s) => {
-            outText += `• [ID: ${s.id}] *${s.day_of_week.toUpperCase()}* (${formatter.formatTime(s.start_time)}-${formatter.formatTime(s.end_time)}) : *${s.course_name}* (${s.lecturer})\n`;
+            outText += `• [ID: ${s.id}] *${s.day_of_week.toUpperCase()}* (${formatter.formatTime(s.start_time)}-${formatter.formatTime(s.end_time)}) : *${s.course_name}* (${s.lecturer})`;
+            if (s.temp_note) outText += ` [📌 Tugas: ${s.temp_note}]`;
+            outText += `\n`;
           });
         }
 
         await reply(outText.trim());
+      } else if (action === 'tugas') {
+        await handleTugasCommand(rawText, ['!bot', 'tugas', ...args.slice(3)], reply);
       } else if (action === 'tambah') {
         const parsed = parseScheduleLines(rawText);
 
@@ -971,8 +1103,13 @@ export async function handleCommand(sock, messageInfo, isAdmin = false) {
         await jadwalService.deleteSchedule(id);
         await reply(`✅ Jadwal dengan ID *${id}* berhasil dihapus.`);
       } else {
-        await reply('❌ Perintah jadwal tidak dikenali.\nPilihan:\n`!bot jadwal`\n`!bot jadwal tambah <hari>|<jam>|<matkul>|<dosen>|<note>`\n`!bot jadwal hapus <id>`');
+        await reply('❌ Perintah jadwal tidak dikenali.\nPilihan:\n`!bot jadwal`\n`!bot jadwal tambah <hari>|<jam>|<matkul>|<dosen>|<note>`\n`!bot jadwal hapus <id>`\n`!bot tugas <matkul/id> <catatan>`');
       }
+      break;
+    }
+
+    case 'tugas': {
+      await handleTugasCommand(rawText, args, reply);
       break;
     }
 

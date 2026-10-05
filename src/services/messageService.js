@@ -54,11 +54,25 @@ export function renderTemplate(templateStr, variables = {}) {
 
 export function buildReminderMessage(templateStr, schedule) {
   const jam = `${formatTime(schedule.start_time)} - ${formatTime(schedule.end_time)}`;
+  
+  let noteDisplay = schedule.note ? schedule.note.trim() : '';
+  if (schedule.temp_note && schedule.temp_note.trim()) {
+    if (noteDisplay) {
+      noteDisplay += `\n📌 *Tugas/Bawaan (Pertemuan Ini)*: ${schedule.temp_note.trim()}`;
+    } else {
+      noteDisplay = `📌 *Tugas/Bawaan (Pertemuan Ini)*: ${schedule.temp_note.trim()}`;
+    }
+  }
+  if (!noteDisplay) {
+    noteDisplay = 'Tidak ada catatan khusus';
+  }
+
   return renderTemplate(templateStr, {
     matkul: schedule.course_name,
     dosen: schedule.lecturer,
     jam,
-    note: schedule.note || 'Tidak ada catatan',
+    note: noteDisplay,
+    tugas: schedule.temp_note ? schedule.temp_note.trim() : 'Tidak ada tugas/bawaan',
     hari: schedule.day_of_week.toUpperCase()
   });
 }

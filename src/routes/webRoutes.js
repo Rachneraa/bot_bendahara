@@ -650,6 +650,27 @@ router.post('/schedules/toggle/:id', requireAuth, async (req, res) => {
   }
 });
 
+router.post('/schedules/task-note/:id', requireAuth, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { temp_note } = req.body;
+    await jadwalService.setTempNote(id, temp_note);
+    res.redirect('/schedules?success=' + encodeURIComponent('Catatan tugas/bawaan 1x berhasil disimpan!'));
+  } catch (err) {
+    res.redirect('/schedules?error=' + encodeURIComponent(err.message));
+  }
+});
+
+router.post('/schedules/task-note/:id/clear', requireAuth, async (req, res) => {
+  try {
+    const { id } = req.params;
+    await jadwalService.clearTempNote(id);
+    res.redirect('/schedules?success=' + encodeURIComponent('Catatan tugas berhasil dihapus!'));
+  } catch (err) {
+    res.redirect('/schedules?error=' + encodeURIComponent(err.message));
+  }
+});
+
 // -------------------------------------------------------------
 // 5. MANAJEMEN TEMPLATE PESAN & LIVE BROADCAST
 // -------------------------------------------------------------
