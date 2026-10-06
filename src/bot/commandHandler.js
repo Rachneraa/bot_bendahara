@@ -1,6 +1,7 @@
 import kasService from '../services/kasService.js';
 import jadwalService from '../services/jadwalService.js';
 import messageService from '../services/messageService.js';
+import spinService from '../services/spinService.js';
 import formatter from '../utils/formatter.js';
 import { getCachedGroupMetadata } from './adminHandler.js';
 
@@ -347,6 +348,87 @@ export async function handleTugasCommand(rawText, args, reply) {
     `📌 *Tugas/Bawaan* : ${res.temp_note}\n\n` +
     `_Catatan ini berlaku 1x dan akan otomatis terhapus setelah jam kuliah selesai._`
   );
+}
+
+export async function handleSpinCommand(rawText, args, messageInfo, reply) {
+  const lines = rawText.split(/\r?\n/).map(l => l.trim()).filter(Boolean);
+  const firstLineWords = lines[0].split(/\s+/);
+
+  let mode = 'size'; // 'size' | 'count'
+  let targetValue = 5;
+  let customTitle = 'Acak Kelompok';
+
+  const secondToken = (firstLineWords[2] || '').toLowerCase();
+  if (['kelompok', 'group', 'grup'].includes(secondToken)) {
+    mode = 'count';
+    const num = parseInt(firstLineWords[3], 10);
+    if (!num || num < 1) {
+      await reply(
+        `❌ Jumlah kelompok tidak valid.\n\n` +
+        `*Format:* \`!bot spin kelompok <jumlah>\`\n` +
+        `*Contoh:* \`!bot spin kelompok 4\``
+      );
+      return;
+    }
+    targetValue = num;
+    if (firstLineWords.slice(4).length > 0) {
+      customTitle = firstLineWords.slice(4).join(' ');
+    }
+  } else {
+    // Mode target size (orang per kelompok)
+    const num = parseInt(firstLineWords[2], 10);
+    if (!num || num < 1) {
+      await reply(
+        `🎲 *PANDUAN ACAK KELOMPOK (SPIN)* 🎲\n\n` +
+        `• *Target Jumlah Orang per Kelompok:*\n` +
+        `  \`!bot spin <jumlah>\`\n` +
+        `  _Contoh:_ \`!bot spin 5\`\n` +
+        `  _(Sisa anggota otomatis dilebur rata menjadi kelompok 5, 6, atau 7 orang)_\n\n` +
+        `• *Target Total Kelompok:*\n` +
+        `  \`!bot spin kelompok <jumlah>\`\n` +
+        `  _Contoh:_ \`!bot spin kelompok 4\`\n\n` +
+        `💡 *Catatan:* Secara otomatis menggunakan seluruh mahasiswa aktif di kelas. Anda juga bisa menyertakan daftar nama custom di baris baru setelah perintah.`
+      );
+      return;
+    }
+    targetValue = num;
+    if (firstLineWords.slice(3).length > 0) {
+      customTitle = firstLineWords.slice(3).join(' ');
+    }
+  }
+
+  // Dapatkan daftar anggota
+  let memberNames = [];
+  if (lines.length > 1) {
+    memberNames = lines.slice(1).map(l => l.replace(/^[-*•\d\.\)]+\s*/, '').trim()).filter(Boolean);
+  } else {
+    const dbMembers = await kasService.getMembers(true);
+    memberNames = dbMembers.map(m => m.name);
+  }
+
+  if (memberNames.length < 2) {
+    await reply('❌ Minimal diperlukan 2 orang mahasiswa untuk diacak ke dalam kelompok.');
+    return;
+  }
+
+  const result = spinService.distributeGroups(memberNames, mode, targetValue);
+
+  try {
+    await spinService.saveSpinResult({
+      title: customTitle,
+      mode: result.mode,
+      targetValue: result.targetValue,
+      totalMembers: result.totalMembers,
+      totalGroups: result.totalGroups,
+      groupsData: result.groups,
+      createdBy: messageInfo.senderNumber || 'admin_wa'
+    });
+  } catch (dbErr) {
+    console.warn('[SPIN DB SAVE WARNING]', dbErr.message);
+  }
+
+  const outMsg = spinService.formatSpinWhatsAppMessage(customTitle, result.groups, result.totalMembers);
+  await reply(outMsg);
 }
 
 export function parsePindahInput(textWithoutCmd) {
@@ -754,8 +836,9 @@ export async function handleCommand(sock, messageInfo, isAdmin = false) {
     const isJadwalAdmin = subCmd === 'jadwal' && ['tambah', 'add', 'hapus', 'del', 'batal', 'online', 'pindah', 'normal', 'reset', 'cancel', 'kosong', 'daring', 'zoom', 'ganti', 'reschedule'].includes((args[2] || '').toLowerCase());
     const isKuliahAdmin = subCmd === 'kuliah' && ['batal', 'online', 'pindah', 'normal', 'reset', 'cancel', 'kosong', 'daring', 'zoom', 'ganti', 'reschedule'].includes((args[2] || '').toLowerCase());
     const isTugasAdmin = (subCmd === 'tugas' && args[2] && !['list'].includes(args[2].toLowerCase())) || (subCmd === 'jadwal' && (args[2] || '').toLowerCase() === 'tugas' && args[3] && !['list'].includes(args[3].toLowerCase()));
+    const isSpinAdmin = ['spin', 'acak'].includes(subCmd);
 
-    const isRestricted = adminCommands.has(subCmd) || isKasAdmin || isMemberAdmin || isJadwalAdmin || isKuliahAdmin || isTugasAdmin;
+    const isRestricted = adminCommands.has(subCmd) || isKasAdmin || isMemberAdmin || isJadwalAdmin || isKuliahAdmin || isTugasAdmin || isSpinAdmin;
 
     if (isRestricted && !isAdmin) {
       await reply(
@@ -820,6 +903,12 @@ export async function handleCommand(sock, messageInfo, isAdmin = false) {
 • \`!bot tugas <matkul/id> <catatan>\` : Set tugas/bawaan 1x pertemuan berikutnya (Admin).
   _Contoh: \`!bot tugas kalkulus bawa modul bab 3 & kalkulator\`_
 • \`!bot tugas hapus <matkul/id>\` : Hapus catatan tugas (Admin).
+
+*🎰 ACAK KELOMPOK (SPIN)*
+• \`!bot spin <jumlah>\` : Bagi kelompok berdasarkan target jumlah orang/kelompok (Admin).
+  _Sisa otomatis dilebur seimbang (misal jadi 5, 6, atau 7 orang per kelompok)._
+• \`!bot spin kelompok <jumlah>\` : Bagi rata seluruh mahasiswa ke N kelompok (Admin).
+  _Contoh: \`!bot spin 5\` atau \`!bot spin kelompok 4\`_
 
 🌐 _Anda juga dapat mengelola data lewat Web Dashboard._
 `.trim();
@@ -1610,6 +1699,12 @@ export async function handleCommand(sock, messageInfo, isAdmin = false) {
 
     case 'tugas': {
       await handleTugasCommand(rawText, args, reply);
+      break;
+    }
+
+    case 'spin':
+    case 'acak': {
+      await handleSpinCommand(rawText, args, messageInfo, reply);
       break;
     }
 

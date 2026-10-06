@@ -4,6 +4,7 @@ import { query } from '../../config/database.js';
 import kasService from '../services/kasService.js';
 import jadwalService from '../services/jadwalService.js';
 import messageService from '../services/messageService.js';
+import spinService from '../services/spinService.js';
 import formatter from '../utils/formatter.js';
 import fs from 'fs';
 import path from 'path';
@@ -1061,6 +1062,104 @@ router.get('/api/kas/monthly-status', requireAuth, async (req, res) => {
     const status = await kasService.getMonthlyStatus(month, year);
     res.json({ success: true, data: status });
   } catch (err) {
+    res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+// -------------------------------------------------------------
+// PENGACAKAN KELOMPOK (SPIN)
+// -------------------------------------------------------------
+router.get('/spin', requireAuth, async (req, res) => {
+  try {
+    const members = await kasService.getMembers(true);
+    const history = await spinService.getSpinHistory(15);
+    res.render('spin', {
+      user: req.session.user,
+      members,
+      history,
+      groupJid: process.env.GROUP_JID || ''
+    });
+  } catch (err) {
+    console.error('[SPIN GET ERROR]', err);
+    res.render('spin', {
+      user: req.session.user,
+      members: [],
+      history: [],
+      groupJid: process.env.GROUP_JID || '',
+      error: err.message
+    });
+  }
+});
+
+router.post('/api/spin/create', requireAuth, async (req, res) => {
+  try {
+    const { title, mode, targetValue, members } = req.body;
+    if (!members || !Array.isArray(members) || members.length < 2) {
+      return res.status(400).json({ success: false, message: 'Minimal 2 anggota untuk diacak.' });
+    }
+
+    const result = spinService.distributeGroups(members, mode || 'size', targetValue || 5);
+    const spinId = await spinService.saveSpinResult({
+      title: title || 'Acak Kelompok',
+      mode: result.mode,
+      targetValue: result.targetValue,
+      totalMembers: result.totalMembers,
+      totalGroups: result.totalGroups,
+      groupsData: result.groups,
+      createdBy: req.session.user?.username || 'admin'
+    });
+
+    const formattedWaText = spinService.formatSpinWhatsAppMessage(title, result.groups, result.totalMembers);
+
+    res.json({
+      success: true,
+      spinId,
+      result,
+      formattedWaText
+    });
+  } catch (err) {
+    console.error('[SPIN ERROR]', err);
+    res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+router.post('/api/spin/broadcast/:id', requireAuth, async (req, res) => {
+  try {
+    const spin = await spinService.getSpinById(req.params.id);
+    if (!spin) {
+      return res.status(404).json({ success: false, message: 'Data hasil acak tidak ditemukan.' });
+    }
+
+    const destJid = process.env.GROUP_JID;
+    if (!destJid) {
+      return res.status(400).json({ success: false, message: 'GROUP_JID WhatsApp belum dikonfigurasi di file .env.' });
+    }
+
+    const waMsg = spinService.formatSpinWhatsAppMessage(spin.title, spin.groups_data, spin.total_members);
+
+    if (bridgeService.isBridgeMode()) {
+      await bridgeService.callRemoteBot('/api/bridge/send', 'POST', {
+        targetGroupJid: destJid,
+        messageText: waMsg,
+        mentionAll: false
+      });
+    } else {
+      await sendGroupNotification(destJid, waMsg, false);
+    }
+
+    res.json({ success: true, message: 'Hasil pembagian kelompok berhasil dikirim ke grup WhatsApp!' });
+  } catch (err) {
+    console.error('[SPIN BROADCAST ERROR]', err);
+    res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+router.post('/api/spin/delete/:id', requireAuth, async (req, res) => {
+  try {
+    await spinService.deleteSpin(req.params.id);
+    res.json({ success: true, message: 'Riwayat acak kelompok berhasil dihapus.' });
+  } catch (err) {
+    console.error('[SPIN DELETE ERROR]', err);
     res.status(500).json({ success: false, message: err.message });
   }
 });

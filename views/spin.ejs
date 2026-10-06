@@ -1,0 +1,1039 @@
+<%- include('layout/header', { pageTitle: 'Acak Kelompok (Spin)', pageDesc: 'Bagi kelompok tugas kuliah secara acak, seimbang, dan adil dengan peleburan sisa otomatis' }) %>
+
+<script src="https://cdn.jsdelivr.net/npm/canvas-confetti@1.9.3/dist/confetti.browser.min.js"></script>
+
+<style>
+  .spin-container {
+    display: grid;
+    grid-template-columns: 420px 1fr;
+    gap: 24px;
+    align-items: start;
+  }
+
+  @media (max-width: 1024px) {
+    .spin-container {
+      grid-template-columns: 1fr;
+    }
+  }
+
+  .mode-toggle-group {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 8px;
+    background: rgba(0, 0, 0, 0.35);
+    padding: 6px;
+    border-radius: var(--radius-md);
+    border: 1px solid var(--border-color);
+    margin-bottom: 16px;
+  }
+
+  .mode-btn {
+    background: transparent;
+    border: none;
+    padding: 10px 12px;
+    border-radius: var(--radius-sm);
+    color: var(--text-muted);
+    font-size: 0.85rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: var(--transition);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    text-align: center;
+  }
+
+  .mode-btn.active {
+    background: var(--accent-gradient);
+    color: #ffffff;
+    box-shadow: 0 4px 15px rgba(99, 102, 241, 0.4);
+  }
+
+  .tab-nav {
+    display: flex;
+    border-bottom: 1px solid var(--border-color);
+    margin-bottom: 14px;
+    gap: 8px;
+  }
+
+  .tab-btn {
+    background: none;
+    border: none;
+    padding: 8px 14px;
+    font-size: 0.85rem;
+    color: var(--text-muted);
+    cursor: pointer;
+    border-bottom: 2px solid transparent;
+    transition: var(--transition);
+  }
+
+  .tab-btn.active {
+    color: #a5b4fc;
+    border-bottom-color: var(--accent-primary);
+    font-weight: 600;
+  }
+
+  .member-list-scroll {
+    max-height: 290px;
+    overflow-y: auto;
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-sm);
+    background: rgba(0, 0, 0, 0.25);
+    padding: 8px;
+  }
+
+  .member-item {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 6px 10px;
+    border-radius: 6px;
+    transition: background 0.15s ease;
+    cursor: pointer;
+    user-select: none;
+  }
+
+  .member-item:hover {
+    background: rgba(255, 255, 255, 0.05);
+  }
+
+  .member-avatar {
+    width: 26px;
+    height: 26px;
+    border-radius: 50%;
+    background: linear-gradient(135deg, #4f46e5, #06b6d4);
+    color: white;
+    font-size: 0.72rem;
+    font-weight: 700;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    margin-right: 8px;
+    flex-shrink: 0;
+  }
+
+  .stepper-control {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .stepper-btn {
+    width: 42px;
+    height: 42px;
+    border-radius: var(--radius-sm);
+    border: 1px solid var(--border-color);
+    background: rgba(255, 255, 255, 0.05);
+    color: #fff;
+    font-size: 1.2rem;
+    cursor: pointer;
+    transition: var(--transition);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  .stepper-btn:hover {
+    background: rgba(99, 102, 241, 0.3);
+    border-color: var(--accent-primary);
+  }
+
+  .stepper-input {
+    flex: 1;
+    height: 42px;
+    text-align: center;
+    font-size: 1.15rem;
+    font-weight: 700;
+    background: rgba(0, 0, 0, 0.3);
+    border: 1px solid var(--border-color);
+    color: #fff;
+    border-radius: var(--radius-sm);
+  }
+
+  .btn-spin-glow {
+    width: 100%;
+    padding: 14px;
+    font-size: 1.05rem;
+    font-weight: 700;
+    letter-spacing: 0.5px;
+    border: none;
+    border-radius: var(--radius-md);
+    background: var(--accent-gradient);
+    color: #ffffff;
+    cursor: pointer;
+    box-shadow: 0 4px 20px rgba(99, 102, 241, 0.45);
+    transition: all 0.25s ease;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 10px;
+  }
+
+  .btn-spin-glow:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 8px 30px rgba(99, 102, 241, 0.65);
+  }
+
+  .btn-spin-glow:active {
+    transform: translateY(0);
+  }
+
+  /* Result group cards */
+  .groups-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+    gap: 16px;
+    margin-top: 20px;
+  }
+
+  .group-card {
+    background: rgba(17, 24, 39, 0.7);
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-md);
+    overflow: hidden;
+    backdrop-filter: var(--backdrop-blur);
+    transition: var(--transition);
+    animation: fadeInScale 0.35s ease both;
+  }
+
+  .group-card:hover {
+    border-color: rgba(99, 102, 241, 0.4);
+    transform: translateY(-3px);
+    box-shadow: var(--shadow-card);
+  }
+
+  @keyframes fadeInScale {
+    from {
+      opacity: 0;
+      transform: scale(0.95) translateY(10px);
+    }
+    to {
+      opacity: 1;
+      transform: scale(1) translateY(0);
+    }
+  }
+
+  .group-header {
+    padding: 12px 16px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    font-weight: 700;
+    font-size: 0.95rem;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  }
+
+  .group-member-item {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 8px 14px;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+    font-size: 0.88rem;
+    color: var(--text-main);
+  }
+
+  .group-member-item:last-child {
+    border-bottom: none;
+  }
+
+  .group-num-badge {
+    width: 22px;
+    height: 22px;
+    border-radius: 6px;
+    background: rgba(255, 255, 255, 0.08);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 0.72rem;
+    font-weight: 700;
+    color: var(--text-muted);
+  }
+
+  /* Shuffling state placeholder animation */
+  .shuffle-box {
+    text-align: center;
+    padding: 60px 20px;
+    border: 2px dashed var(--border-color);
+    border-radius: var(--radius-lg);
+    background: rgba(0, 0, 0, 0.15);
+  }
+
+  .spinning-dice {
+    font-size: 3.5rem;
+    display: inline-block;
+    animation: spinDice 1s infinite linear;
+  }
+
+  @keyframes spinDice {
+    0% { transform: rotate(0deg) scale(1); }
+    50% { transform: rotate(180deg) scale(1.15); }
+    100% { transform: rotate(360deg) scale(1); }
+  }
+
+  /* Toast Notification */
+  .spin-toast {
+    position: fixed;
+    bottom: 24px;
+    right: 24px;
+    background: rgba(17, 24, 39, 0.95);
+    border: 1px solid var(--accent-emerald);
+    color: #fff;
+    padding: 12px 20px;
+    border-radius: var(--radius-md);
+    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.6);
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    z-index: 9999;
+    transform: translateY(100px);
+    opacity: 0;
+    transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+  }
+
+  .spin-toast.show {
+    transform: translateY(0);
+    opacity: 1;
+  }
+</style>
+
+<!-- Stat Cards -->
+<div class="stats-grid" style="margin-bottom: 24px;">
+  <div class="stat-card">
+    <div class="stat-icon" style="color: var(--accent-primary);">👥</div>
+    <div class="stat-info">
+      <p>Total Mahasiswa Kelas</p>
+      <h3><%= members.length %> Orang</h3>
+    </div>
+  </div>
+  <div class="stat-card">
+    <div class="stat-icon" style="color: var(--accent-emerald);">🎰</div>
+    <div class="stat-info">
+      <p>Riwayat Acak Tersimpan</p>
+      <h3><%= history.length %> Kali</h3>
+    </div>
+  </div>
+  <div class="stat-card">
+    <div class="stat-icon" style="color: var(--accent-cyan);">⚖️</div>
+    <div class="stat-info">
+      <p>Peleburan Sisa</p>
+      <h3 style="font-size: 1.15rem; color: #a5f3fc;">Otomatis Seimbang</h3>
+    </div>
+  </div>
+</div>
+
+<!-- Main Workspace -->
+<div class="spin-container">
+  <!-- Sisi Kiri: Panel Kontrol Pengaturan Spin -->
+  <div class="glass-card" style="padding: 20px;">
+    <h3 style="font-size: 1.1rem; font-weight: 700; margin-bottom: 16px; display: flex; align-items: center; gap: 8px;">
+      <span>⚙️</span> Pengaturan Kelompok
+    </h3>
+
+    <!-- Judul Spin / Tugas -->
+    <div class="form-group" style="margin-bottom: 16px;">
+      <label style="font-size: 0.85rem; color: var(--text-muted); display: block; margin-bottom: 6px;">
+        Judul Acak / Tugas
+      </label>
+      <input type="text" id="spinTitle" placeholder="Contoh: Tugas Kelompok Algoritma" value="Tugas Kelompok"
+        style="width: 100%; border-radius: var(--radius-sm); padding: 10px 12px; background: rgba(0,0,0,0.3); border: 1px solid var(--border-color); color: #fff;">
+    </div>
+
+    <!-- Mode Pemilihan -->
+    <div style="margin-bottom: 16px;">
+      <label style="font-size: 0.85rem; color: var(--text-muted); display: block; margin-bottom: 6px;">
+        Metode Pembagian
+      </label>
+      <div class="mode-toggle-group">
+        <button type="button" class="mode-btn active" id="btnModeSize" onclick="setMode('size')">
+          👥 Orang / Kelompok
+        </button>
+        <button type="button" class="mode-btn" id="btnModeCount" onclick="setMode('count')">
+          🏷️ Total Kelompok
+        </button>
+      </div>
+
+      <!-- Helper text penjelasan adaptif -->
+      <div id="modeDescription" style="font-size: 0.8rem; color: #94a3b8; background: rgba(99, 102, 241, 0.1); border-left: 3px solid var(--accent-primary); padding: 8px 12px; border-radius: 4px; line-height: 1.4;">
+        💡 <strong>Mode Target Anggota:</strong> Mengisi per kelompok sesuai target. Sisa anggota akan otomatis dilebur rata (misal menjadi kelompok berisi 5, 6, atau 7 orang) tanpa menyisakan kelompok terpencil.
+      </div>
+    </div>
+
+    <!-- Stepper Input Angka Target -->
+    <div class="form-group" style="margin-bottom: 20px;">
+      <label id="targetValueLabel" style="font-size: 0.85rem; color: var(--text-muted); display: block; margin-bottom: 6px;">
+        Target Jumlah Orang per Kelompok:
+      </label>
+      <div class="stepper-control">
+        <button type="button" class="stepper-btn" onclick="adjustTarget(-1)">−</button>
+        <input type="number" id="targetValue" value="5" min="1" max="100" class="stepper-input">
+        <button type="button" class="stepper-btn" onclick="adjustTarget(1)">+</button>
+      </div>
+      <div id="estimatedGroupsInfo" style="font-size: 0.8rem; color: #a5b4fc; margin-top: 6px; text-align: center; font-weight: 500;">
+        Estimasi: Membagi anggota menjadi beberapa kelompok seimbang
+      </div>
+    </div>
+
+    <!-- Tab Sumber Data Anggota -->
+    <div style="margin-bottom: 20px;">
+      <div class="tab-nav">
+        <button type="button" class="tab-btn active" id="tabBtnDb" onclick="switchTab('db')">
+          👥 Anggota Kelas (<span id="countSelectedMember"><%= members.length %></span>)
+        </button>
+        <button type="button" class="tab-btn" id="tabBtnManual" onclick="switchTab('manual')">
+          ✍️ Input Manual
+        </button>
+      </div>
+
+      <!-- Tab Content 1: Database Mahasiswa -->
+      <div id="tabContentDb">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+          <input type="text" id="filterMember" placeholder="🔍 Cari nama..." oninput="filterMemberList()"
+            style="flex: 1; padding: 6px 10px; font-size: 0.8rem; border-radius: var(--radius-sm); background: rgba(0,0,0,0.3); border: 1px solid var(--border-color); color: #fff; margin-right: 8px;">
+          <div style="display: flex; gap: 4px;">
+            <button type="button" onclick="toggleAllMembers(true)" class="btn btn-secondary" style="padding: 4px 8px; font-size: 0.75rem;">Semua</button>
+            <button type="button" onclick="toggleAllMembers(false)" class="btn btn-secondary" style="padding: 4px 8px; font-size: 0.75rem;">Reset</button>
+          </div>
+        </div>
+
+        <div class="member-list-scroll" id="memberCheckboxList">
+          <% if (members.length === 0) { %>
+            <div style="text-align: center; padding: 20px; color: var(--text-dim); font-size: 0.85rem;">
+              Belum ada data mahasiswa di database. Gunakan tab "Input Manual".
+            </div>
+          <% } %>
+          <% members.forEach(m => { %>
+            <label class="member-item member-row" data-name="<%= m.name.toLowerCase() %>">
+              <div style="display: flex; align-items: center;">
+                <span class="member-avatar"><%= m.name.charAt(0).toUpperCase() %></span>
+                <div>
+                  <div style="font-size: 0.86rem; font-weight: 500; color: #fff;"><%= m.name %></div>
+                  <% if (m.nim) { %>
+                    <div style="font-size: 0.72rem; color: var(--text-dim);">NIM: <%= m.nim %></div>
+                  <% } %>
+                </div>
+              </div>
+              <input type="checkbox" class="chk-member" value="<%= m.name %>" checked onchange="updateSelectedCount()"
+                style="width: 17px; height: 17px; cursor: pointer; accent-color: var(--accent-primary);">
+            </label>
+          <% }) %>
+        </div>
+      </div>
+
+      <!-- Tab Content 2: Input Manual -->
+      <div id="tabContentManual" style="display: none;">
+        <p style="font-size: 0.78rem; color: var(--text-muted); margin-bottom: 6px;">
+          Ketik atau tempel nama-nama mahasiswa (1 nama per baris):
+        </p>
+        <textarea id="manualMembersInput" rows="10" placeholder="Fulan 1&#10;Fulan 2&#10;Fulan 3&#10;Fulan 4&#10;Fulan 5"
+          oninput="updateManualCount()"
+          style="width: 100%; border-radius: var(--radius-sm); padding: 10px; background: rgba(0,0,0,0.3); border: 1px solid var(--border-color); color: #fff; font-family: inherit; font-size: 0.85rem; line-height: 1.5;"></textarea>
+        <div style="font-size: 0.78rem; color: #a5b4fc; margin-top: 4px;">
+          Terdeteksi: <strong id="countManualMember">0</strong> nama
+        </div>
+      </div>
+    </div>
+
+    <!-- Tombol Spin Utama -->
+    <button type="button" class="btn-spin-glow" id="btnDoSpin" onclick="executeSpin()">
+      <span>🎲</span> ACAK KELOMPOK SEKARANG
+    </button>
+  </div>
+
+  <!-- Sisi Kanan: Live Area Hasil Pengacakan -->
+  <div>
+    <!-- Placeholder / Shuffling / Hasil Display -->
+    <div class="glass-card" id="resultContainer" style="padding: 24px; min-height: 480px;">
+      <!-- State 1: Placeholder Awal -->
+      <div id="placeholderState" class="shuffle-box">
+        <div style="font-size: 3rem; margin-bottom: 12px;">🎰</div>
+        <h3 style="font-size: 1.25rem; font-weight: 700; color: #fff; margin-bottom: 6px;">Siap Mengacak Kelompok</h3>
+        <p style="color: var(--text-muted); font-size: 0.88rem; max-width: 420px; margin: 0 auto 20px auto; line-height: 1.5;">
+          Tentukan judul, jumlah target per kelompok, dan daftar mahasiswa di panel sebelah kiri. Klik tombol <strong>Acak Kelompok Sekarang</strong> untuk memulai.
+        </p>
+        <div style="display: inline-flex; align-items: center; gap: 8px; font-size: 0.8rem; background: rgba(255, 255, 255, 0.05); padding: 6px 14px; border-radius: 20px; color: #94a3b8; border: 1px solid var(--border-color);">
+          <span>✨</span> Algoritma Fisher-Yates + Round-Robin Seimbang
+        </div>
+      </div>
+
+      <!-- State 2: Animasi Shuffling Loading -->
+      <div id="shufflingState" class="shuffle-box" style="display: none;">
+        <div class="spinning-dice">🎲</div>
+        <h3 style="font-size: 1.3rem; font-weight: 700; color: #a5b4fc; margin: 16px 0 6px 0;">Mengacak Mahasiswa Secara Adil...</h3>
+        <p style="color: var(--text-muted); font-size: 0.88rem;">Menyusun kelompok tanpa menyisakan anggota...</p>
+      </div>
+
+      <!-- State 3: Hasil Pengacakan Aktif -->
+      <div id="activeResultState" style="display: none;">
+        <!-- Header Hasil -->
+        <div style="display: flex; justify-content: space-between; align-items: flex-start; flex-wrap: wrap; gap: 16px; border-bottom: 1px solid var(--border-color); padding-bottom: 18px;">
+          <div>
+            <div style="display: flex; align-items: center; gap: 8px;">
+              <span class="badge" style="background: rgba(16, 185, 129, 0.15); color: var(--accent-emerald);">🎉 Pengacakan Berhasil</span>
+              <span id="resTimestamp" style="font-size: 0.78rem; color: var(--text-dim);"></span>
+            </div>
+            <h2 id="resTitle" style="font-size: 1.4rem; font-weight: 800; color: #fff; margin: 6px 0 4px 0;"></h2>
+            <div style="display: flex; gap: 12px; font-size: 0.84rem; color: var(--text-muted);">
+              <span>👥 <strong id="resTotalMembers" style="color: #fff;">0</strong> Mahasiswa</span>
+              <span>•</span>
+              <span>🏷️ <strong id="resTotalGroups" style="color: #fff;">0</strong> Kelompok</span>
+              <span>•</span>
+              <span id="resDetailBadge" style="color: #a5b4fc;"></span>
+            </div>
+          </div>
+
+          <!-- Quick Action Buttons -->
+          <div style="display: flex; gap: 8px; flex-wrap: wrap;">
+            <button type="button" class="btn btn-secondary" onclick="copyFormattedText()" style="display: inline-flex; align-items: center; gap: 6px; font-size: 0.85rem;">
+              <span>📋</span> Salin Teks WA
+            </button>
+            <button type="button" class="btn btn-primary" id="btnBroadcastWa" onclick="broadcastCurrentSpin()" style="display: inline-flex; align-items: center; gap: 6px; font-size: 0.85rem; background: linear-gradient(135deg, #10b981 0%, #059669 100%); border-color: #10b981;">
+              <span>📢</span> Kirim ke WhatsApp
+            </button>
+            <button type="button" class="btn btn-secondary" onclick="executeSpin()" title="Acak Ulang dengan pengaturan yang sama" style="display: inline-flex; align-items: center; gap: 4px; font-size: 0.85rem;">
+              <span>🔄</span> Acak Ulang
+            </button>
+          </div>
+        </div>
+
+        <!-- Group Cards Grid -->
+        <div class="groups-grid" id="groupsGridContainer"></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Bagian Bawah: Riwayat Pengacakan Terakhir -->
+<div class="glass-card" style="margin-top: 32px; padding: 24px;">
+  <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px; margin-bottom: 16px;">
+    <div>
+      <h3 style="font-size: 1.15rem; font-weight: 700; color: #fff; margin: 0;">📜 Riwayat Pengacakan Kelompok</h3>
+      <p style="font-size: 0.82rem; color: var(--text-muted); margin: 4px 0 0 0;">
+        Hasil pengacakan tersimpan di database dan dapat dikirim kembali ke grup WhatsApp kapan saja.
+      </p>
+    </div>
+  </div>
+
+  <div class="table-responsive">
+    <table>
+      <thead>
+        <tr>
+          <th>Waktu</th>
+          <th>Judul Pengacakan</th>
+          <th>Mode & Target</th>
+          <th>Total Mahasiswa</th>
+          <th>Jumlah Kelompok</th>
+          <th>Oleh</th>
+          <th style="text-align: right;">Aksi</th>
+        </tr>
+      </thead>
+      <tbody id="historyTableBody">
+        <% if (history.length === 0) { %>
+          <tr id="emptyHistoryRow">
+            <td colspan="7" style="text-align: center; padding: 30px; color: var(--text-dim); font-size: 0.88rem;">
+              Belum ada riwayat pengacakan. Buat pembagian kelompok pertama Anda di atas!
+            </td>
+          </tr>
+        <% } %>
+        <% history.forEach(item => { %>
+          <tr id="historyRow_<%= item.id %>">
+            <td style="font-size: 0.82rem; color: var(--text-muted);">
+              <%= new Date(item.created_at).toLocaleString('id-ID', { dateStyle: 'medium', timeStyle: 'short' }) %>
+            </td>
+            <td>
+              <strong style="color: #fff;"><%= item.title %></strong>
+            </td>
+            <td>
+              <span class="badge" style="background: rgba(99, 102, 241, 0.15); color: #a5b4fc;">
+                <%= item.mode === 'count' ? `Target ${item.target_value} Kelompok` : `Target ${item.target_value} Orang/Kel.` %>
+              </span>
+            </td>
+            <td><strong><%= item.total_members %> Orang</strong></td>
+            <td><strong style="color: var(--accent-cyan);"><%= item.total_groups %> Kelompok</strong></td>
+            <td style="font-size: 0.82rem; color: var(--text-dim);"><%= item.created_by || 'admin' %></td>
+            <td style="text-align: right; white-space: nowrap;">
+              <button type="button" class="btn btn-secondary" onclick="viewHistoryDetail(<%= item.id %>)" style="padding: 4px 8px; font-size: 0.75rem;" title="Tampilkan Hasil">
+                👁️ Tampilkan
+              </button>
+              <button type="button" class="btn btn-secondary" onclick="broadcastHistorySpin(<%= item.id %>)" style="padding: 4px 8px; font-size: 0.75rem; color: #34d399;" title="Kirim ke Grup WhatsApp">
+                📢 Kirim WA
+              </button>
+              <button type="button" class="btn btn-secondary" onclick="deleteHistorySpin(<%= item.id %>)" style="padding: 4px 8px; font-size: 0.75rem; color: var(--accent-rose);" title="Hapus Riwayat">
+                🗑️
+              </button>
+            </td>
+          </tr>
+        <% }) %>
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<!-- Toast Container -->
+<div id="spinToast" class="spin-toast">
+  <span id="toastIcon">✅</span>
+  <span id="toastMsg" style="font-size: 0.88rem; font-weight: 500;">Pesan</span>
+</div>
+
+<script>
+  // Palet warna gradient untuk kartu kelompok
+  const GROUP_PALETTES = [
+    { bg: 'linear-gradient(135deg, rgba(99, 102, 241, 0.25), rgba(139, 92, 246, 0.15))', border: '#6366f1', text: '#a5b4fc' },
+    { bg: 'linear-gradient(135deg, rgba(16, 185, 129, 0.25), rgba(5, 150, 105, 0.15))', border: '#10b981', text: '#6ee7b7' },
+    { bg: 'linear-gradient(135deg, rgba(6, 182, 212, 0.25), rgba(14, 165, 233, 0.15))', border: '#06b6d4', text: '#67e8f9' },
+    { bg: 'linear-gradient(135deg, rgba(245, 158, 11, 0.25), rgba(217, 119, 6, 0.15))', border: '#f59e0b', text: '#fde68a' },
+    { bg: 'linear-gradient(135deg, rgba(244, 63, 94, 0.25), rgba(225, 29, 72, 0.15))', border: '#f43f5e', text: '#fda4af' },
+    { bg: 'linear-gradient(135deg, rgba(168, 85, 247, 0.25), rgba(192, 38, 211, 0.15))', border: '#a855f7', text: '#d8b4fe' },
+    { bg: 'linear-gradient(135deg, rgba(234, 88, 12, 0.25), rgba(194, 65, 12, 0.15))', border: '#ea580c', text: '#fed7aa' },
+    { bg: 'linear-gradient(135deg, rgba(20, 184, 166, 0.25), rgba(13, 148, 136, 0.15))', border: '#14b8a6', text: '#99f6e4' }
+  ];
+
+  // State aplikasi frontend
+  let currentMode = 'size'; // 'size' | 'count'
+  let currentActiveTab = 'db'; // 'db' | 'manual'
+  let lastSpinResult = null;
+  let lastFormattedWaText = '';
+  let lastSpinId = null;
+
+  // History cache in memory
+  const historyCache = {};
+  <% history.forEach(item => { %>
+    historyCache[<%= item.id %>] = {
+      id: <%= item.id %>,
+      title: <%- JSON.stringify(item.title) %>,
+      mode: <%- JSON.stringify(item.mode) %>,
+      target_value: <%= item.target_value %>,
+      total_members: <%= item.total_members %>,
+      total_groups: <%= item.total_groups %>,
+      groups_data: <%- JSON.stringify(item.groups_data) %>,
+      created_at: <%- JSON.stringify(item.created_at) %>
+    };
+  <% }) %>
+
+  // Ganti Mode
+  function setMode(mode) {
+    currentMode = mode;
+    const btnSize = document.getElementById('btnModeSize');
+    const btnCount = document.getElementById('btnModeCount');
+    const label = document.getElementById('targetValueLabel');
+    const desc = document.getElementById('modeDescription');
+    const input = document.getElementById('targetValue');
+
+    if (mode === 'size') {
+      btnSize.classList.add('active');
+      btnCount.classList.remove('active');
+      label.innerText = 'Target Jumlah Orang per Kelompok:';
+      desc.innerHTML = '💡 <strong>Mode Target Anggota:</strong> Mengisi per kelompok sesuai target. Sisa anggota akan otomatis dilebur rata (misal menjadi kelompok berisi 5, 6, atau 7 orang) tanpa menyisakan kelompok kecil.';
+      if (parseInt(input.value, 10) < 1) input.value = 5;
+    } else {
+      btnCount.classList.add('active');
+      btnSize.classList.remove('active');
+      label.innerText = 'Target Total Jumlah Kelompok:';
+      desc.innerHTML = '💡 <strong>Mode Total Kelompok:</strong> Menentukan jumlah kelompok yang diinginkan (misal 4 kelompok). Seluruh anggota akan dibagikan rata ke sejumlah kelompok tersebut.';
+      if (parseInt(input.value, 10) < 1) input.value = 4;
+    }
+    updateEstimatedInfo();
+  }
+
+  // Stepper Target
+  function adjustTarget(delta) {
+    const input = document.getElementById('targetValue');
+    let val = parseInt(input.value, 10) || 1;
+    val = Math.max(1, val + delta);
+    input.value = val;
+    updateEstimatedInfo();
+  }
+
+  document.getElementById('targetValue').addEventListener('input', updateEstimatedInfo);
+
+  function updateEstimatedInfo() {
+    const val = parseInt(document.getElementById('targetValue').value, 10) || 1;
+    const total = getSelectedMembersList().length;
+    const info = document.getElementById('estimatedGroupsInfo');
+
+    if (total === 0) {
+      info.innerText = 'Pilih minimal 2 mahasiswa untuk melihat estimasi.';
+      return;
+    }
+
+    if (currentMode === 'size') {
+      const numGroups = total <= val ? 1 : Math.max(1, Math.floor(total / val));
+      const minPerG = Math.floor(total / numGroups);
+      const maxPerG = Math.ceil(total / numGroups);
+      if (minPerG === maxPerG) {
+        info.innerText = `Estimasi: ${numGroups} Kelompok (masing-masing ${minPerG} orang)`;
+      } else {
+        info.innerText = `Estimasi: ${numGroups} Kelompok (berisi ${minPerG} s.d ${maxPerG} orang, rata seimbang)`;
+      }
+    } else {
+      const numGroups = Math.max(1, Math.min(total, val));
+      const minPerG = Math.floor(total / numGroups);
+      const maxPerG = Math.ceil(total / numGroups);
+      info.innerText = `Estimasi: ${numGroups} Kelompok (berisi ${minPerG} s.d ${maxPerG} orang)`;
+    }
+  }
+
+  // Switch Tab Sumber Data
+  function switchTab(tab) {
+    currentActiveTab = tab;
+    const btnDb = document.getElementById('tabBtnDb');
+    const btnManual = document.getElementById('tabBtnManual');
+    const contentDb = document.getElementById('tabContentDb');
+    const contentManual = document.getElementById('tabContentManual');
+
+    if (tab === 'db') {
+      btnDb.classList.add('active');
+      btnManual.classList.remove('active');
+      contentDb.style.display = 'block';
+      contentManual.style.display = 'none';
+    } else {
+      btnManual.classList.add('active');
+      btnDb.classList.remove('active');
+      contentDb.style.display = 'none';
+      contentManual.style.display = 'block';
+    }
+    updateEstimatedInfo();
+  }
+
+  // Filter List DB
+  function filterMemberList() {
+    const query = document.getElementById('filterMember').value.toLowerCase().trim();
+    const rows = document.querySelectorAll('.member-row');
+    rows.forEach(r => {
+      const name = r.getAttribute('data-name');
+      r.style.display = name.includes(query) ? 'flex' : 'none';
+    });
+  }
+
+  // Toggle All Checkboxes
+  function toggleAllMembers(status) {
+    document.querySelectorAll('.chk-member').forEach(chk => {
+      chk.checked = status;
+    });
+    updateSelectedCount();
+  }
+
+  function updateSelectedCount() {
+    const checked = document.querySelectorAll('.chk-member:checked');
+    document.getElementById('countSelectedMember').innerText = checked.length;
+    updateEstimatedInfo();
+  }
+
+  function updateManualCount() {
+    const text = document.getElementById('manualMembersInput').value;
+    const lines = text.split('\n').map(l => l.trim()).filter(l => l.length > 0);
+    document.getElementById('countManualMember').innerText = lines.length;
+    updateEstimatedInfo();
+  }
+
+  // Ambil list nama aktif
+  function getSelectedMembersList() {
+    if (currentActiveTab === 'db') {
+      const checked = Array.from(document.querySelectorAll('.chk-member:checked'));
+      return checked.map(c => c.value.trim()).filter(Boolean);
+    } else {
+      const text = document.getElementById('manualMembersInput').value;
+      return text.split('\n').map(l => l.trim()).filter(Boolean);
+    }
+  }
+
+  // Eksekusi Spin
+  async function executeSpin() {
+    const members = getSelectedMembersList();
+    if (members.length < 2) {
+      showToast('⚠️ Minimal pilih 2 anggota mahasiswa untuk diacak.', '#f59e0b');
+      return;
+    }
+
+    const title = document.getElementById('spinTitle').value.trim() || 'Tugas Kelompok';
+    const targetVal = parseInt(document.getElementById('targetValue').value, 10) || 5;
+
+    // Tampilkan state shuffling animasi
+    document.getElementById('placeholderState').style.display = 'none';
+    document.getElementById('activeResultState').style.display = 'none';
+    document.getElementById('shufflingState').style.display = 'block';
+    document.getElementById('btnDoSpin').disabled = true;
+
+    try {
+      const resp = await fetch('/api/spin/create', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          title,
+          mode: currentMode,
+          targetValue: targetVal,
+          members
+        })
+      });
+
+      const res = await resp.json();
+      if (!res.success) throw new Error(res.message);
+
+      // Simpan di state aktif
+      lastSpinResult = res.result;
+      lastFormattedWaText = res.formattedWaText;
+      lastSpinId = res.spinId;
+
+      // Tunggu jeda animasi 800ms agar efek putaran terasa memuaskan
+      setTimeout(() => {
+        document.getElementById('shufflingState').style.display = 'none';
+        renderSpinResult(title, res.result, res.spinId);
+        document.getElementById('btnDoSpin').disabled = false;
+
+        // Pesta confetti!
+        if (typeof confetti === 'function') {
+          confetti({
+            particleCount: 80,
+            spread: 70,
+            origin: { y: 0.6 }
+          });
+        }
+
+        // Tambah ke riwayat tabel secara real-time
+        prependHistoryRow({
+          id: res.spinId,
+          title,
+          mode: currentMode,
+          target_value: targetVal,
+          total_members: res.result.totalMembers,
+          total_groups: res.result.totalGroups,
+          groups_data: res.result.groups,
+          created_by: '<%= (user && user.username) ? user.username : "admin" %>',
+          created_at: new Date().toISOString()
+        });
+
+        showToast('🎉 Kelompok berhasil diacak dengan rapi!', '#10b981');
+      }, 750);
+
+    } catch (err) {
+      document.getElementById('shufflingState').style.display = 'none';
+      document.getElementById('placeholderState').style.display = 'block';
+      document.getElementById('btnDoSpin').disabled = false;
+      showToast('❌ Gagal mengacak: ' + err.message, '#f43f5e');
+    }
+  }
+
+  // Render Kartu Hasil
+  function renderSpinResult(title, result, spinId) {
+    document.getElementById('resTitle').innerText = title || 'Hasil Acak Kelompok';
+    document.getElementById('resTotalMembers').innerText = result.totalMembers;
+    document.getElementById('resTotalGroups').innerText = result.totalGroups;
+    document.getElementById('resTimestamp').innerText = new Date().toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' }) + ' WIB';
+
+    const detailBadge = document.getElementById('resDetailBadge');
+    if (result.mode === 'size') {
+      detailBadge.innerText = `Target: ${result.targetValue} orang/kelompok`;
+    } else {
+      detailBadge.innerText = `Target: ${result.targetValue} kelompok`;
+    }
+
+    const container = document.getElementById('groupsGridContainer');
+    container.innerHTML = '';
+
+    result.groups.forEach((g, idx) => {
+      const palette = GROUP_PALETTES[idx % GROUP_PALETTES.length];
+      const card = document.createElement('div');
+      card.className = 'group-card';
+      card.style.borderColor = palette.border;
+
+      let memberRows = '';
+      g.members.forEach((m, mIdx) => {
+        const name = typeof m === 'object' ? (m.name || m.nama) : String(m);
+        memberRows += `
+          <div class="group-member-item">
+            <span class="group-num-badge">${mIdx + 1}</span>
+            <span style="font-weight: 500;">${name}</span>
+          </div>
+        `;
+      });
+
+      card.innerHTML = `
+        <div class="group-header" style="background: ${palette.bg}; color: ${palette.text};">
+          <div style="display: flex; align-items: center; gap: 6px;">
+            <span>🏷️</span>
+            <span>KELOMPOK ${g.groupNumber}</span>
+          </div>
+          <span style="font-size: 0.78rem; background: rgba(0,0,0,0.3); padding: 3px 8px; border-radius: 12px; color: #fff;">
+            ${g.members.length} Orang
+          </span>
+        </div>
+        <div>
+          ${memberRows}
+        </div>
+      `;
+
+      container.appendChild(card);
+    });
+
+    document.getElementById('activeResultState').style.display = 'block';
+  }
+
+  // Salin Format WA
+  function copyFormattedText() {
+    if (!lastFormattedWaText) {
+      showToast('⚠️ Belum ada hasil acak untuk disalin.', '#f59e0b');
+      return;
+    }
+    navigator.clipboard.writeText(lastFormattedWaText).then(() => {
+      showToast('📋 Teks format WhatsApp berhasil disalin!', '#10b981');
+    }).catch(() => {
+      showToast('❌ Gagal menyalin ke clipboard', '#f43f5e');
+    });
+  }
+
+  // Broadcast ke WA Langsung
+  async function broadcastCurrentSpin() {
+    if (!lastSpinId) {
+      showToast('⚠️ ID hasil acak tidak ditemukan.', '#f59e0b');
+      return;
+    }
+
+    if (!confirm('Kirim pengumuman pembagian kelompok ini ke grup WhatsApp sekarang?')) {
+      return;
+    }
+
+    const btn = document.getElementById('btnBroadcastWa');
+    btn.disabled = true;
+    btn.innerHTML = '<span>⏳</span> Mengirim...';
+
+    try {
+      const resp = await fetch(`/api/spin/broadcast/${lastSpinId}`, { method: 'POST' });
+      const res = await resp.json();
+      if (!res.success) throw new Error(res.message);
+
+      showToast('📢 ' + res.message, '#10b981');
+    } catch (err) {
+      showToast('❌ ' + err.message, '#f43f5e');
+    } finally {
+      btn.disabled = false;
+      btn.innerHTML = '<span>📢</span> Kirim ke WhatsApp';
+    }
+  }
+
+  // History Actions
+  function viewHistoryDetail(id) {
+    const item = historyCache[id];
+    if (!item) return;
+
+    lastSpinResult = {
+      mode: item.mode,
+      targetValue: item.target_value,
+      totalMembers: item.total_members,
+      totalGroups: item.total_groups,
+      groups: item.groups_data
+    };
+    lastSpinId = item.id;
+
+    // Generate formatted WA text
+    let waMsg = `🎲 *${item.title.toUpperCase()}* 🎲\n\n`;
+    waMsg += `📋 *Total Mahasiswa:* ${item.total_members} Orang\n`;
+    waMsg += `👥 *Total Kelompok:* ${item.total_groups} Kelompok\n`;
+    waMsg += `━━━━━━━━━━━━━━━━━━━━━\n\n`;
+    item.groups_data.forEach(g => {
+      waMsg += `🏷️ *KELOMPOK ${g.groupNumber}* (${g.members.length} Orang):\n`;
+      g.members.forEach((m, idx) => {
+        const name = typeof m === 'object' ? (m.name || m.nama) : String(m);
+        waMsg += `  ${idx + 1}. ${name}\n`;
+      });
+      waMsg += `\n`;
+    });
+    waMsg += `━━━━━━━━━━━━━━━━━━━━━\n`;
+    waMsg += `✨ _Pengacakan dilakukan secara adil dan otomatis oleh Bot Kelas._`;
+    lastFormattedWaText = waMsg;
+
+    document.getElementById('placeholderState').style.display = 'none';
+    document.getElementById('shufflingState').style.display = 'none';
+    renderSpinResult(item.title, lastSpinResult, item.id);
+
+    window.scrollTo({ top: 120, behavior: 'smooth' });
+    showToast('👁️ Menampilkan hasil riwayat: ' + item.title, '#06b6d4');
+  }
+
+  async function broadcastHistorySpin(id) {
+    if (!confirm('Kirim hasil riwayat ini ke grup WhatsApp sekarang?')) return;
+    try {
+      const resp = await fetch(`/api/spin/broadcast/${id}`, { method: 'POST' });
+      const res = await resp.json();
+      if (!res.success) throw new Error(res.message);
+      showToast('📢 ' + res.message, '#10b981');
+    } catch (err) {
+      showToast('❌ ' + err.message, '#f43f5e');
+    }
+  }
+
+  async function deleteHistorySpin(id) {
+    if (!confirm('Yakin ingin menghapus riwayat acak ini?')) return;
+    try {
+      const resp = await fetch(`/api/spin/delete/${id}`, { method: 'POST' });
+      const res = await resp.json();
+      if (!res.success) throw new Error(res.message);
+
+      delete historyCache[id];
+      const row = document.getElementById(`historyRow_${id}`);
+      if (row) row.remove();
+
+      showToast('🗑️ Riwayat berhasil dihapus.', '#10b981');
+    } catch (err) {
+      showToast('❌ ' + err.message, '#f43f5e');
+    }
+  }
+
+  function prependHistoryRow(item) {
+    historyCache[item.id] = item;
+    const emptyRow = document.getElementById('emptyHistoryRow');
+    if (emptyRow) emptyRow.remove();
+
+    const tbody = document.getElementById('historyTableBody');
+    const tr = document.createElement('tr');
+    tr.id = `historyRow_${item.id}`;
+    tr.innerHTML = `
+      <td style="font-size: 0.82rem; color: var(--text-muted);">
+        Baru Saja
+      </td>
+      <td>
+        <strong style="color: #fff;">${item.title}</strong>
+      </td>
+      <td>
+        <span class="badge" style="background: rgba(99, 102, 241, 0.15); color: #a5b4fc;">
+          ${item.mode === 'count' ? `Target ${item.target_value} Kelompok` : `Target ${item.target_value} Orang/Kel.`}
+        </span>
+      </td>
+      <td><strong>${item.total_members} Orang</strong></td>
+      <td><strong style="color: var(--accent-cyan);">${item.total_groups} Kelompok</strong></td>
+      <td style="font-size: 0.82rem; color: var(--text-dim);">${item.created_by}</td>
+      <td style="text-align: right; white-space: nowrap;">
+        <button type="button" class="btn btn-secondary" onclick="viewHistoryDetail(${item.id})" style="padding: 4px 8px; font-size: 0.75rem;">
+          👁️ Tampilkan
+        </button>
+        <button type="button" class="btn btn-secondary" onclick="broadcastHistorySpin(${item.id})" style="padding: 4px 8px; font-size: 0.75rem; color: #34d399;">
+          📢 Kirim WA
+        </button>
+        <button type="button" class="btn btn-secondary" onclick="deleteHistorySpin(${item.id})" style="padding: 4px 8px; font-size: 0.75rem; color: var(--accent-rose);">
+          🗑️
+        </button>
+      </td>
+    `;
+    tbody.insertBefore(tr, tbody.firstChild);
+  }
+
+  // Toast Function
+  let toastTimer = null;
+  function showToast(msg, color = '#10b981') {
+    const toast = document.getElementById('spinToast');
+    const toastMsg = document.getElementById('toastMsg');
+    toastMsg.innerText = msg;
+    toast.style.borderColor = color;
+    toast.classList.add('show');
+
+    if (toastTimer) clearTimeout(toastTimer);
+    toastTimer = setTimeout(() => {
+      toast.classList.remove('show');
+    }, 3500);
+  }
+
+  // Initial estimate check on load
+  updateEstimatedInfo();
+</script>
+
+<%- include('layout/footer') %>

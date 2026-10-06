@@ -105,6 +105,20 @@ CREATE TABLE IF NOT EXISTS `reminder_logs` (
   UNIQUE KEY `unique_reminder` (`schedule_id`, `reminder_type`, `reminder_date`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
+-- 9. Tabel Spin History (Riwayat Pengacakan Kelompok)
+CREATE TABLE IF NOT EXISTS `spin_history` (
+  `id` INT AUTO_INCREMENT PRIMARY KEY,
+  `title` VARCHAR(150) NOT NULL DEFAULT 'Acak Kelompok',
+  `mode` ENUM('size', 'count') NOT NULL DEFAULT 'size',
+  `target_value` INT NOT NULL,
+  `total_members` INT NOT NULL,
+  `total_groups` INT NOT NULL,
+  `groups_data` JSON NOT NULL,
+  `created_by` VARCHAR(100) NOT NULL,
+  `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  INDEX `idx_created_at` (`created_at`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
 -- ==========================================================
 -- Data Default Awal (Seed Data)
 -- ==========================================================
