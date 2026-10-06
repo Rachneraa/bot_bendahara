@@ -290,14 +290,14 @@
           <!-- Acak Kelompok (Spin) -->
           <tr>
             <td><span class="badge" style="background: rgba(236, 72, 153, 0.15); color: #f472b6;">🎰 Acak Kelompok</span></td>
-            <td><code>!bot spin &lt;jumlah&gt;</code></td>
-            <td><code>!bot spin 5</code><br><code>!bot spin 5 Tugas Besar Algoritma</code></td>
-            <td>Membagi kelompok dengan target orang per kelompok. Sisa anggota <strong>otomatis dilebur rata</strong> (misal menjadi kelompok 5, 6, atau 7 orang) tanpa ada yang tersisa sendiri. Default mengambil seluruh anggota aktif di kelas atau daftar nama pada baris baru (khusus Admin).</td>
+            <td><code>!bot spin &lt;jumlah&gt; [cewe: nama1, nama2...]</code></td>
+            <td><code>!bot spin 5</code><br><code>!bot spin 5 cewe: Ani, Bunga, Citra</code></td>
+            <td>Membagi kelompok dengan target orang per kelompok. Sisa anggota <strong>otomatis dilebur rata</strong> (misal jadi kelompok 5, 6, atau 7 orang). Jika parameter <code>cewe:</code> disertakan atau toggle diaktifkan di Web, seluruh mahasiswi perempuan disatukan ke dalam <strong>Kelompok 1 (Khusus Cewek)</strong> tanpa dicampur laki-laki (khusus Admin).</td>
           </tr>
           <tr>
             <td><span class="badge" style="background: rgba(236, 72, 153, 0.15); color: #f472b6;">🎰 Acak Kelompok</span></td>
             <td><code>!bot spin kelompok &lt;jumlah&gt;</code></td>
-            <td><code>!bot spin kelompok 4</code><br><code>!bot spin grup 3</code></td>
+            <td><code>!bot spin kelompok 4</code><br><code>!bot spin kelompok 4 cewe: Ani, Bunga</code></td>
             <td>Membagi seluruh mahasiswa rata menjadi sejumlah total kelompok yang ditentukan (khusus Admin).</td>
           </tr>
         </tbody>

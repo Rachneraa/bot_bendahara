@@ -375,6 +375,19 @@
       </div>
     </div>
 
+    <!-- Toggle Pisahkan 1 Kelompok Khusus Cewek -->
+    <div style="background: rgba(244, 63, 94, 0.08); border: 1px solid rgba(244, 63, 94, 0.25); border-radius: var(--radius-sm); padding: 12px 14px; margin-bottom: 20px;">
+      <label style="display: flex; align-items: center; justify-content: space-between; cursor: pointer; margin-bottom: 0;">
+        <span style="display: flex; align-items: center; gap: 8px; font-weight: 600; font-size: 0.88rem; color: #fda4af;">
+          <span>🌸</span> Pisahkan 1 Kelompok Khusus Cewek
+        </span>
+        <input type="checkbox" id="toggleFemaleGroup" onchange="onToggleFemaleGroup()" style="width: 18px; height: 18px; cursor: pointer; accent-color: var(--accent-rose);">
+      </label>
+      <div id="femaleGroupHelper" style="font-size: 0.8rem; color: #fecdd3; margin-top: 8px; line-height: 1.4; display: none;">
+        💡 Semua mahasiswi yang ditandai (<strong id="femaleCountBadge">0</strong> cewek) akan disatukan penuh ke dalam <strong>Kelompok 1 (Khusus Cewek)</strong> tanpa dicampur laki-laki. Sisanya diacak ke kelompok lain.
+      </div>
+    </div>
+
     <!-- Tab Sumber Data Anggota -->
     <div style="margin-bottom: 20px;">
       <div class="tab-nav">
@@ -404,8 +417,8 @@
             </div>
           <% } %>
           <% members.forEach(m => { %>
-            <label class="member-item member-row" data-name="<%= m.name.toLowerCase() %>">
-              <div style="display: flex; align-items: center;">
+            <div class="member-item member-row" data-name="<%= m.name.toLowerCase() %>" id="rowMember_<%= m.id %>" style="display: flex; align-items: center; justify-content: space-between;">
+              <div style="display: flex; align-items: center; flex: 1; cursor: pointer;" onclick="toggleMemberRowCheck('<%= m.id %>')">
                 <span class="member-avatar"><%= m.name.charAt(0).toUpperCase() %></span>
                 <div>
                   <div style="font-size: 0.86rem; font-weight: 500; color: #fff;"><%= m.name %></div>
@@ -414,9 +427,14 @@
                   <% } %>
                 </div>
               </div>
-              <input type="checkbox" class="chk-member" value="<%= m.name %>" checked onchange="updateSelectedCount()"
-                style="width: 17px; height: 17px; cursor: pointer; accent-color: var(--accent-primary);">
-            </label>
+              <div style="display: flex; align-items: center; gap: 8px;">
+                <button type="button" class="btn-female-tag" id="btnFemale_<%= m.id %>" onclick="toggleFemaleStatus('<%= m.id %>', '<%= m.name.replace(/'/g, "\\'") %>')" title="Tandai sebagai Mahasiswi Cewek" style="display: none; padding: 3px 8px; font-size: 0.72rem; border-radius: 12px; border: 1px solid rgba(244, 63, 94, 0.4); background: rgba(0,0,0,0.3); color: #fda4af; cursor: pointer; transition: all 0.2s ease;">
+                  👩 Cewek
+                </button>
+                <input type="checkbox" class="chk-member" id="chkMember_<%= m.id %>" value="<%= m.name %>" checked onchange="updateSelectedCount()"
+                  style="width: 17px; height: 17px; cursor: pointer; accent-color: var(--accent-primary);">
+              </div>
+            </div>
           <% }) %>
         </div>
       </div>
@@ -426,11 +444,19 @@
         <p style="font-size: 0.78rem; color: var(--text-muted); margin-bottom: 6px;">
           Ketik atau tempel nama-nama mahasiswa (1 nama per baris):
         </p>
-        <textarea id="manualMembersInput" rows="10" placeholder="Fulan 1&#10;Fulan 2&#10;Fulan 3&#10;Fulan 4&#10;Fulan 5"
+        <textarea id="manualMembersInput" rows="8" placeholder="Fulan 1&#10;Fulan 2&#10;Fulan 3&#10;Fulan 4&#10;Fulan 5"
           oninput="updateManualCount()"
           style="width: 100%; border-radius: var(--radius-sm); padding: 10px; background: rgba(0,0,0,0.3); border: 1px solid var(--border-color); color: #fff; font-family: inherit; font-size: 0.85rem; line-height: 1.5;"></textarea>
         <div style="font-size: 0.78rem; color: #a5b4fc; margin-top: 4px;">
           Terdeteksi: <strong id="countManualMember">0</strong> nama
+        </div>
+
+        <div id="manualFemaleBox" style="display: none; margin-top: 12px; padding: 10px 12px; background: rgba(244, 63, 94, 0.08); border: 1px dashed rgba(244, 63, 94, 0.35); border-radius: var(--radius-sm);">
+          <label style="font-size: 0.78rem; color: #fda4af; display: block; margin-bottom: 4px; font-weight: 600;">
+            🌸 Daftar Nama Cewek (1 nama per baris atau pisahkan koma):
+          </label>
+          <textarea id="manualFemaleInput" rows="3" placeholder="Siti&#10;Dewi&#10;Putri" oninput="updateEstimatedInfo()"
+            style="width: 100%; border-radius: 4px; padding: 6px 8px; background: rgba(0,0,0,0.3); border: 1px solid rgba(244, 63, 94, 0.3); color: #fff; font-family: inherit; font-size: 0.8rem;"></textarea>
         </div>
       </div>
     </div>
@@ -595,6 +621,66 @@
   let lastSpinResult = null;
   let lastFormattedWaText = '';
   let lastSpinId = null;
+  const selectedFemaleNames = new Set();
+
+  function onToggleFemaleGroup() {
+    const isChecked = document.getElementById('toggleFemaleGroup').checked;
+    const helper = document.getElementById('femaleGroupHelper');
+    const femaleBtns = document.querySelectorAll('.btn-female-tag');
+    const manualBox = document.getElementById('manualFemaleBox');
+
+    helper.style.display = isChecked ? 'block' : 'none';
+    if (manualBox) manualBox.style.display = isChecked ? 'block' : 'none';
+
+    femaleBtns.forEach(btn => {
+      btn.style.display = isChecked ? 'inline-flex' : 'none';
+    });
+
+    updateEstimatedInfo();
+  }
+
+  function toggleFemaleStatus(id, name) {
+    const btn = document.getElementById(`btnFemale_${id}`);
+    const cleanName = name.trim();
+    if (selectedFemaleNames.has(cleanName)) {
+      selectedFemaleNames.delete(cleanName);
+      btn.style.background = 'rgba(0,0,0,0.3)';
+      btn.style.borderColor = 'rgba(244, 63, 94, 0.4)';
+      btn.style.color = '#fda4af';
+      btn.style.fontWeight = 'normal';
+      btn.innerText = '👩 Cewek';
+    } else {
+      selectedFemaleNames.add(cleanName);
+      btn.style.background = 'linear-gradient(135deg, #f43f5e, #ec4899)';
+      btn.style.borderColor = '#f43f5e';
+      btn.style.color = '#ffffff';
+      btn.style.fontWeight = '700';
+      btn.innerText = '👩✓ Cewek';
+    }
+    document.getElementById('femaleCountBadge').innerText = selectedFemaleNames.size;
+    updateEstimatedInfo();
+  }
+
+  function toggleMemberRowCheck(id) {
+    const chk = document.getElementById(`chkMember_${id}`);
+    if (chk) {
+      chk.checked = !chk.checked;
+      updateSelectedCount();
+    }
+  }
+
+  function getFemaleMembersList() {
+    const isFemaleActive = document.getElementById('toggleFemaleGroup').checked;
+    if (!isFemaleActive) return [];
+
+    if (currentActiveTab === 'db') {
+      const activeMembers = new Set(getSelectedMembersList().map(n => n.toLowerCase()));
+      return Array.from(selectedFemaleNames).filter(n => activeMembers.has(n.toLowerCase()));
+    } else {
+      const txt = document.getElementById('manualFemaleInput')?.value || '';
+      return txt.split(/[\n,]/).map(n => n.trim()).filter(Boolean);
+    }
+  }
 
   // History cache in memory
   const historyCache = {};
@@ -651,26 +737,31 @@
     const val = parseInt(document.getElementById('targetValue').value, 10) || 1;
     const total = getSelectedMembersList().length;
     const info = document.getElementById('estimatedGroupsInfo');
+    const isFemaleActive = document.getElementById('toggleFemaleGroup')?.checked;
+    const femaleList = getFemaleMembersList();
+    const femaleCount = femaleList.length;
 
     if (total === 0) {
       info.innerText = 'Pilih minimal 2 mahasiswa untuk melihat estimasi.';
       return;
     }
 
+    let extraNote = '';
+    if (isFemaleActive && femaleCount > 0) {
+      extraNote = ` | 🌸 Kelompok 1: ${femaleCount} cewek utuh`;
+    }
+
+    const effectiveTotal = isFemaleActive && femaleCount > 0 ? Math.max(1, total - femaleCount) : total;
+
     if (currentMode === 'size') {
-      const numGroups = total <= val ? 1 : Math.max(1, Math.floor(total / val));
-      const minPerG = Math.floor(total / numGroups);
-      const maxPerG = Math.ceil(total / numGroups);
-      if (minPerG === maxPerG) {
-        info.innerText = `Estimasi: ${numGroups} Kelompok (masing-masing ${minPerG} orang)`;
-      } else {
-        info.innerText = `Estimasi: ${numGroups} Kelompok (berisi ${minPerG} s.d ${maxPerG} orang, rata seimbang)`;
-      }
+      const otherGroups = effectiveTotal <= val ? 1 : Math.max(1, Math.floor(effectiveTotal / val));
+      const totalG = isFemaleActive && femaleCount > 0 ? otherGroups + 1 : otherGroups;
+      info.innerText = `Estimasi: ${totalG} Kelompok (seimbang)${extraNote}`;
     } else {
-      const numGroups = Math.max(1, Math.min(total, val));
-      const minPerG = Math.floor(total / numGroups);
-      const maxPerG = Math.ceil(total / numGroups);
-      info.innerText = `Estimasi: ${numGroups} Kelompok (berisi ${minPerG} s.d ${maxPerG} orang)`;
+      const otherTarget = isFemaleActive && femaleCount > 0 ? Math.max(1, val - 1) : val;
+      const otherGroups = Math.max(1, Math.min(effectiveTotal, otherTarget));
+      const totalG = isFemaleActive && femaleCount > 0 ? otherGroups + 1 : otherGroups;
+      info.innerText = `Estimasi: ${totalG} Kelompok${extraNote}`;
     }
   }
 
@@ -748,6 +839,8 @@
 
     const title = document.getElementById('spinTitle').value.trim() || 'Tugas Kelompok';
     const targetVal = parseInt(document.getElementById('targetValue').value, 10) || 5;
+    const isFemaleActive = document.getElementById('toggleFemaleGroup').checked;
+    const femaleMembers = getFemaleMembersList();
 
     // Tampilkan state shuffling animasi
     document.getElementById('placeholderState').style.display = 'none';
@@ -763,7 +856,9 @@
           title,
           mode: currentMode,
           targetValue: targetVal,
-          members
+          members,
+          femaleMembers,
+          separateFemaleGroup: isFemaleActive
         })
       });
 
@@ -775,7 +870,7 @@
       lastFormattedWaText = res.formattedWaText;
       lastSpinId = res.spinId;
 
-      // Tunggu jeda animasi 800ms agar efek putaran terasa memuaskan
+      // Tunggu jeda animasi 750ms agar efek putaran terasa memuaskan
       setTimeout(() => {
         document.getElementById('shufflingState').style.display = 'none';
         renderSpinResult(title, res.result, res.spinId);
@@ -822,17 +917,21 @@
     document.getElementById('resTimestamp').innerText = new Date().toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' }) + ' WIB';
 
     const detailBadge = document.getElementById('resDetailBadge');
-    if (result.mode === 'size') {
-      detailBadge.innerText = `Target: ${result.targetValue} orang/kelompok`;
-    } else {
-      detailBadge.innerText = `Target: ${result.targetValue} kelompok`;
+    let modeText = result.mode === 'size' ? `Target: ${result.targetValue} orang/kelompok` : `Target: ${result.targetValue} kelompok`;
+    if (result.hasFemaleGroup) {
+      modeText += ' • 🌸 1 Kelompok Khusus Cewek';
     }
+    detailBadge.innerText = modeText;
 
     const container = document.getElementById('groupsGridContainer');
     container.innerHTML = '';
 
     result.groups.forEach((g, idx) => {
-      const palette = GROUP_PALETTES[idx % GROUP_PALETTES.length];
+      const isFemale = Boolean(g.isFemaleGroup);
+      const palette = isFemale
+        ? { bg: 'linear-gradient(135deg, rgba(244, 63, 94, 0.35), rgba(236, 72, 153, 0.25))', border: '#f43f5e', text: '#fda4af' }
+        : GROUP_PALETTES[idx % GROUP_PALETTES.length];
+
       const card = document.createElement('div');
       card.className = 'group-card';
       card.style.borderColor = palette.border;
@@ -844,18 +943,21 @@
           <div class="group-member-item">
             <span class="group-num-badge">${mIdx + 1}</span>
             <span style="font-weight: 500;">${name}</span>
+            ${isFemale ? '<span style="font-size: 0.75rem; color: #fda4af; margin-left: auto;">👩</span>' : ''}
           </div>
         `;
       });
 
+      const groupLabel = isFemale ? `🌸 KELOMPOK ${g.groupNumber} (KHUSUS CEWEK)` : `🏷️ KELOMPOK ${g.groupNumber}`;
+      const badgeText = isFemale ? `${g.members.length} Orang (Full Cewek)` : `${g.members.length} Orang`;
+
       card.innerHTML = `
         <div class="group-header" style="background: ${palette.bg}; color: ${palette.text};">
           <div style="display: flex; align-items: center; gap: 6px;">
-            <span>🏷️</span>
-            <span>KELOMPOK ${g.groupNumber}</span>
+            <span>${groupLabel}</span>
           </div>
           <span style="font-size: 0.78rem; background: rgba(0,0,0,0.3); padding: 3px 8px; border-radius: 12px; color: #fff;">
-            ${g.members.length} Orang
+            ${badgeText}
           </span>
         </div>
         <div>

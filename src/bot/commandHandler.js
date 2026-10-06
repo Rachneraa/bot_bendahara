@@ -351,8 +351,33 @@ export async function handleTugasCommand(rawText, args, reply) {
 }
 
 export async function handleSpinCommand(rawText, args, messageInfo, reply) {
-  const lines = rawText.split(/\r?\n/).map(l => l.trim()).filter(Boolean);
-  const firstLineWords = lines[0].split(/\s+/);
+  // Cek apakah ada parameter cewe: / cewek: / putri:
+  let femaleNames = [];
+  let cleanedRawText = rawText;
+
+  // 1. Cek format inline (cewe: nama1, nama2...) pada 1 baris
+  const inlineMatch = rawText.match(/(?:cewe|cewek|putri|perempuan)\s*:\s*([^\r\n]+)/i);
+  if (inlineMatch && inlineMatch[1].trim()) {
+    femaleNames = inlineMatch[1]
+      .split(/[,]/)
+      .map(n => n.replace(/^[-*•\d\.\)]+\s*/, '').trim())
+      .filter(Boolean);
+    cleanedRawText = rawText.replace(inlineMatch[0], '').trim();
+  } else {
+    // 2. Cek format blok baris (cewe:\nnama1\nnama2...)
+    const blockMatch = rawText.match(/(?:cewe|cewek|putri|perempuan)\s*:\s*\r?\n([\s\S]+?)(?=\r?\n(?:cowok|laki|pria)\s*:|$)/i);
+    if (blockMatch) {
+      femaleNames = blockMatch[1]
+        .split(/\r?\n/)
+        .map(n => n.replace(/^[-*•\d\.\)]+\s*/, '').trim())
+        .filter(Boolean);
+      cleanedRawText = rawText.replace(blockMatch[0], '').trim();
+    }
+  }
+
+  const lines = cleanedRawText.split(/\r?\n/).map(l => l.trim()).filter(Boolean);
+  const firstLine = lines[0] || '';
+  const firstLineWords = firstLine.split(/\s+/);
 
   let mode = 'size'; // 'size' | 'count'
   let targetValue = 5;
@@ -365,8 +390,8 @@ export async function handleSpinCommand(rawText, args, messageInfo, reply) {
     if (!num || num < 1) {
       await reply(
         `❌ Jumlah kelompok tidak valid.\n\n` +
-        `*Format:* \`!bot spin kelompok <jumlah>\`\n` +
-        `*Contoh:* \`!bot spin kelompok 4\``
+        `*Format:* \`!bot spin kelompok <jumlah> [cewe: nama1, nama2...]\`\n` +
+        `*Contoh:* \`!bot spin kelompok 4 cewe: Ani, Bunga\``
       );
       return;
     }
@@ -387,7 +412,11 @@ export async function handleSpinCommand(rawText, args, messageInfo, reply) {
         `• *Target Total Kelompok:*\n` +
         `  \`!bot spin kelompok <jumlah>\`\n` +
         `  _Contoh:_ \`!bot spin kelompok 4\`\n\n` +
-        `💡 *Catatan:* Secara otomatis menggunakan seluruh mahasiswa aktif di kelas. Anda juga bisa menyertakan daftar nama custom di baris baru setelah perintah.`
+        `• *🌸 Pisahkan 1 Kelompok Full Cewek:*\n` +
+        `  \`!bot spin <jumlah> cewe: nama1, nama2, nama3\`\n` +
+        `  _Contoh:_ \`!bot spin 5 cewe: Ani, Bunga, Citra, Dewi\`\n` +
+        `  _(Seluruh mahasiswi cewek otomatis jadi 1 kelompok khusus, sisanya diacak seimbang)_\n\n` +
+        `💡 *Catatan:* Secara otomatis menggunakan seluruh mahasiswa aktif di kelas.`
       );
       return;
     }
@@ -401,6 +430,11 @@ export async function handleSpinCommand(rawText, args, messageInfo, reply) {
   let memberNames = [];
   if (lines.length > 1) {
     memberNames = lines.slice(1).map(l => l.replace(/^[-*•\d\.\)]+\s*/, '').trim()).filter(Boolean);
+    for (const fn of femaleNames) {
+      if (!memberNames.some(m => m.toLowerCase() === fn.toLowerCase())) {
+        memberNames.push(fn);
+      }
+    }
   } else {
     const dbMembers = await kasService.getMembers(true);
     memberNames = dbMembers.map(m => m.name);
@@ -411,7 +445,24 @@ export async function handleSpinCommand(rawText, args, messageInfo, reply) {
     return;
   }
 
-  const result = spinService.distributeGroups(memberNames, mode, targetValue);
+  // Pencocokan cerdas nama cewek terhadap memberNames
+  const resolvedFemaleNames = [];
+  if (femaleNames.length > 0) {
+    for (const rawFn of femaleNames) {
+      const lower = rawFn.toLowerCase();
+      const match = memberNames.find(m => m.toLowerCase() === lower || m.toLowerCase().includes(lower));
+      if (match) {
+        resolvedFemaleNames.push(match);
+      } else {
+        resolvedFemaleNames.push(rawFn);
+      }
+    }
+  }
+
+  const result = spinService.distributeGroups(memberNames, mode, targetValue, {
+    femaleMembers: resolvedFemaleNames,
+    separateFemaleGroup: resolvedFemaleNames.length > 0
+  });
 
   try {
     await spinService.saveSpinResult({
@@ -907,8 +958,10 @@ export async function handleCommand(sock, messageInfo, isAdmin = false) {
 *🎰 ACAK KELOMPOK (SPIN)*
 • \`!bot spin <jumlah>\` : Bagi kelompok berdasarkan target jumlah orang/kelompok (Admin).
   _Sisa otomatis dilebur seimbang (misal jadi 5, 6, atau 7 orang per kelompok)._
+• \`!bot spin <jumlah> cewe: nama1, nama2...\` : Pisahkan seluruh cewek jadi 1 kelompok khusus (Admin).
+  _Contoh: \`!bot spin 5 cewe: Ani, Bunga, Citra, Dewi\`_
 • \`!bot spin kelompok <jumlah>\` : Bagi rata seluruh mahasiswa ke N kelompok (Admin).
-  _Contoh: \`!bot spin 5\` atau \`!bot spin kelompok 4\`_
+  _Contoh: \`!bot spin kelompok 4\`_
 
 🌐 _Anda juga dapat mengelola data lewat Web Dashboard._
 `.trim();

@@ -1093,12 +1093,15 @@ router.get('/spin', requireAuth, async (req, res) => {
 
 router.post('/api/spin/create', requireAuth, async (req, res) => {
   try {
-    const { title, mode, targetValue, members } = req.body;
+    const { title, mode, targetValue, members, femaleMembers, separateFemaleGroup } = req.body;
     if (!members || !Array.isArray(members) || members.length < 2) {
       return res.status(400).json({ success: false, message: 'Minimal 2 anggota untuk diacak.' });
     }
 
-    const result = spinService.distributeGroups(members, mode || 'size', targetValue || 5);
+    const result = spinService.distributeGroups(members, mode || 'size', targetValue || 5, {
+      femaleMembers: Array.isArray(femaleMembers) ? femaleMembers : [],
+      separateFemaleGroup: Boolean(separateFemaleGroup)
+    });
     const spinId = await spinService.saveSpinResult({
       title: title || 'Acak Kelompok',
       mode: result.mode,

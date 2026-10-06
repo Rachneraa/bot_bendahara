@@ -14,26 +14,74 @@ export function shuffleArray(array) {
 
 /**
  * Membagi daftar anggota menjadi kelompok seimbang secara acak.
+ * Mendukung opsi pemisahan 1 kelompok khusus cewek (all-female group).
  * @param {Array} members List nama atau object anggota
  * @param {string} mode 'size' (target orang/kelompok) | 'count' (target jumlah kelompok)
  * @param {number} targetValue Nilai target
+ * @param {object} options { femaleMembers: [], separateFemaleGroup: boolean }
  */
-export function distributeGroups(members, mode = 'size', targetValue = 5) {
+export function distributeGroups(members, mode = 'size', targetValue = 5, options = {}) {
   if (!members || members.length === 0) {
     throw new Error('Daftar anggota tidak boleh kosong.');
   }
 
-  const shuffled = shuffleArray(members);
+  const { femaleMembers = [], separateFemaleGroup = false } = options;
+
+  // Normalisasi list femaleMembers
+  const femaleSet = new Set(
+    (femaleMembers || [])
+      .map(f => (typeof f === 'object' ? (f.name || f.nama || '') : String(f)).trim().toLowerCase())
+      .filter(Boolean)
+  );
+
+  let activeFemaleGroup = null;
+  let remainingMembers = [...members];
+
+  if (separateFemaleGroup && femaleSet.size > 0) {
+    const femalesInPool = [];
+    const othersInPool = [];
+
+    for (const m of members) {
+      const name = (typeof m === 'object' ? (m.name || m.nama || '') : String(m)).trim().toLowerCase();
+      if (femaleSet.has(name)) {
+        femalesInPool.push(m);
+      } else {
+        othersInPool.push(m);
+      }
+    }
+
+    if (femalesInPool.length > 0) {
+      activeFemaleGroup = {
+        groupNumber: 1,
+        title: 'KELOMPOK 1 (KHUSUS CEWEK)',
+        isFemaleGroup: true,
+        members: shuffleArray(femalesInPool)
+      };
+      remainingMembers = othersInPool;
+    }
+  }
+
+  // Jika semua anggota terpilih adalah cewek
+  if (remainingMembers.length === 0 && activeFemaleGroup) {
+    return {
+      mode,
+      targetValue: parseInt(targetValue, 10) || 1,
+      totalMembers: members.length,
+      totalGroups: 1,
+      hasFemaleGroup: true,
+      groups: [activeFemaleGroup]
+    };
+  }
+
+  const shuffled = shuffleArray(remainingMembers);
   const total = shuffled.length;
   let numGroups = 1;
 
   if (mode === 'count') {
-    // Mode target total jumlah kelompok (misal bagi jadi 4 kelompok)
     const target = parseInt(targetValue, 10) || 1;
-    numGroups = Math.max(1, Math.min(total, target));
+    const adjustedTarget = activeFemaleGroup ? Math.max(1, target - 1) : target;
+    numGroups = Math.max(1, Math.min(total, adjustedTarget));
   } else {
-    // Mode target jumlah orang per kelompok (misal 5 orang/kelompok)
-    // Sisa dilebur merata ke kelompok yang ada (menghasilkan kelompok 5, 6, atau 7 orang)
     const targetSize = Math.max(1, parseInt(targetValue, 10) || 1);
     if (total <= targetSize) {
       numGroups = 1;
@@ -42,22 +90,27 @@ export function distributeGroups(members, mode = 'size', targetValue = 5) {
     }
   }
 
-  // Buat array kelompok dan distribusikan anggota secara merata (round-robin)
-  const groups = Array.from({ length: numGroups }, (_, i) => ({
-    groupNumber: i + 1,
+  const offset = activeFemaleGroup ? 1 : 0;
+  const otherGroups = Array.from({ length: numGroups }, (_, i) => ({
+    groupNumber: i + 1 + offset,
+    title: `KELOMPOK ${i + 1 + offset}`,
+    isFemaleGroup: false,
     members: []
   }));
 
   for (let i = 0; i < shuffled.length; i++) {
-    groups[i % numGroups].members.push(shuffled[i]);
+    otherGroups[i % numGroups].members.push(shuffled[i]);
   }
+
+  const finalGroups = activeFemaleGroup ? [activeFemaleGroup, ...otherGroups] : otherGroups;
 
   return {
     mode,
     targetValue: parseInt(targetValue, 10) || 1,
-    totalMembers: total,
-    totalGroups: numGroups,
-    groups
+    totalMembers: members.length,
+    totalGroups: finalGroups.length,
+    hasFemaleGroup: Boolean(activeFemaleGroup),
+    groups: finalGroups
   };
 }
 
@@ -131,7 +184,11 @@ export function formatSpinWhatsAppMessage(title = 'Acak Kelompok', groups = [], 
   out += `━━━━━━━━━━━━━━━━━━━━━\n\n`;
 
   groups.forEach((g) => {
-    out += `🏷️ *KELOMPOK ${g.groupNumber}* (${g.members.length} Orang):\n`;
+    if (g.isFemaleGroup) {
+      out += `🌸 *KELOMPOK ${g.groupNumber} (KHUSUS CEWEK)* (${g.members.length} Orang):\n`;
+    } else {
+      out += `🏷️ *KELOMPOK ${g.groupNumber}* (${g.members.length} Orang):\n`;
+    }
     g.members.forEach((m, idx) => {
       const name = typeof m === 'object' ? (m.name || m.nama || JSON.stringify(m)) : String(m);
       const nim = typeof m === 'object' && m.nim ? ` (NIM: ${m.nim})` : '';
