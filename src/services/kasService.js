@@ -663,6 +663,21 @@ export async function recordBulkKasText({ raw_text, week_number, year, created_b
   };
 }
 
+export async function getLastExpense() {
+  const [row] = await query(`
+    SELECT amount, description, created_at 
+    FROM kas_transactions 
+    WHERE type = 'keluar' 
+    ORDER BY created_at DESC, id DESC 
+    LIMIT 1
+  `);
+  return row ? {
+    amount: Number(row.amount || 0),
+    description: row.description,
+    createdAt: row.created_at
+  } : null;
+}
+
 export async function correctMemberIuran({ member_id, new_amount, week_number = null, year = null, created_by, source = 'bot_wa' }) {
   const [member] = await query('SELECT id, name FROM members WHERE id = ?', [member_id]);
   if (!member) throw new Error('Mahasiswa tidak ditemukan');
@@ -674,14 +689,27 @@ export async function correctMemberIuran({ member_id, new_amount, week_number = 
     targetWeek = row && row.value ? parseInt(row.value, 10) : 1;
   }
 
-  // Hitung total iuran mahasiswa saat ini dari mutasi kas
-  const [sumRow] = await query(`
-    SELECT COALESCE(SUM(CASE WHEN type = 'masuk' THEN amount ELSE -amount END), 0) AS current_paid
-    FROM kas_transactions
-    WHERE member_id = ?
-  `, [member_id]);
+  // Ambil data iuran saat ini di iuran_weekly
+  const [currentIuran] = await query(`
+    SELECT id, amount, transaction_id 
+    FROM iuran_weekly 
+    WHERE member_id = ? AND week_number = ? AND year = ?
+    LIMIT 1
+  `, [member_id, targetWeek, targetYear]);
 
-  const currentPaid = Number(sumRow?.current_paid || 0);
+  // Jika belum ada di iuran_weekly, coba hitung dari kas_transactions
+  let currentPaid = 0;
+  if (currentIuran) {
+    currentPaid = Number(currentIuran.amount || 0);
+  } else {
+    const [sumRow] = await query(`
+      SELECT COALESCE(SUM(amount), 0) AS current_paid
+      FROM kas_transactions
+      WHERE member_id = ? AND type = 'masuk'
+    `, [member_id]);
+    currentPaid = Number(sumRow?.current_paid || 0);
+  }
+
   const targetNewAmount = Math.max(0, parseInt(new_amount, 10) || 0);
   const target = await getKasTarget();
 
@@ -699,37 +727,74 @@ export async function correctMemberIuran({ member_id, new_amount, week_number = 
   }
 
   const diff = targetNewAmount - currentPaid;
-  let txId = null;
+  let txId = currentIuran?.transaction_id || null;
 
-  if (diff < 0) {
-    // Pengurangan iuran -> catat transaksi keluar sebagai audit trail
-    txId = await addTransaction({
-      type: 'keluar',
-      amount: Math.abs(diff),
-      member_id,
-      description: `Koreksi iuran kas ${member.name}: penyesuaian nominal (${formatRupiah(currentPaid)} -> ${formatRupiah(targetNewAmount)})`,
-      source,
-      created_by
-    });
-  } else if (diff > 0) {
-    // Penambahan iuran -> catat transaksi masuk
-    txId = await addTransaction({
-      type: 'masuk',
-      amount: diff,
-      member_id,
-      description: `Koreksi iuran kas ${member.name}: penambahan nominal (${formatRupiah(currentPaid)} -> ${formatRupiah(targetNewAmount)})`,
-      source,
-      created_by
-    });
-  }
-
-  // Sinkronkan catatan di iuran_weekly
   if (targetNewAmount === 0) {
+    // Koreksi ke 0: Hapus data iuran dan transaksi kas masuk terkait
+    if (txId) {
+      await query('DELETE FROM kas_transactions WHERE id = ?', [txId]);
+    }
+    await query(`
+      DELETE FROM kas_transactions 
+      WHERE member_id = ? AND type = 'masuk' AND description LIKE ?
+    `, [member_id, `%Minggu ke-${targetWeek} (${targetYear})%`]);
+
     await query(`
       DELETE FROM iuran_weekly 
       WHERE member_id = ? AND week_number = ? AND year = ?
     `, [member_id, targetWeek, targetYear]);
   } else {
+    // Koreksi ke nominal baru (> 0): perbarui transaksi kas masuk langsung
+    if (txId) {
+      const [existingTx] = await query('SELECT id FROM kas_transactions WHERE id = ?', [txId]);
+      if (existingTx) {
+        await query(`
+          UPDATE kas_transactions 
+          SET amount = ?, description = ?
+          WHERE id = ?
+        `, [
+          targetNewAmount,
+          `Iuran Kas Minggu ke-${targetWeek} (${targetYear}) - ${member.name}`,
+          txId
+        ]);
+      } else {
+        txId = null;
+      }
+    }
+
+    if (!txId) {
+      // Cari transaksi masuk yang ada milik anggota ini pada minggu bersangkutan
+      const [existingTx] = await query(`
+        SELECT id FROM kas_transactions 
+        WHERE member_id = ? AND type = 'masuk' AND description LIKE ?
+        ORDER BY id DESC LIMIT 1
+      `, [member_id, `%Minggu ke-${targetWeek} (${targetYear})%`]);
+
+      if (existingTx) {
+        txId = existingTx.id;
+        await query(`
+          UPDATE kas_transactions 
+          SET amount = ?, description = ?
+          WHERE id = ?
+        `, [
+          targetNewAmount,
+          `Iuran Kas Minggu ke-${targetWeek} (${targetYear}) - ${member.name}`,
+          txId
+        ]);
+      } else {
+        // Buat transaksi baru dengan nominal yang sudah benar
+        txId = await addTransaction({
+          type: 'masuk',
+          amount: targetNewAmount,
+          member_id,
+          description: `Iuran Kas Minggu ke-${targetWeek} (${targetYear}) - ${member.name}`,
+          source,
+          created_by
+        });
+      }
+    }
+
+    // Sinkronkan catatan di iuran_weekly
     await query(`
       INSERT INTO iuran_weekly (member_id, week_number, year, amount, transaction_id)
       VALUES (?, ?, ?, ?, ?)
@@ -756,6 +821,7 @@ export async function correctMemberIuran({ member_id, new_amount, week_number = 
 export default {
   getSaldoSummary,
   getRecentTransactions,
+  getLastExpense,
   addTransaction,
   getMembers,
   addMember,

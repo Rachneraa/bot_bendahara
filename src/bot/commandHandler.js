@@ -1204,14 +1204,27 @@ export async function handleCommand(sock, messageInfo, isAdmin = false) {
 
       if (action === 'saldo') {
         const summary = await kasService.getSaldoSummary();
-        const text = `
+        const monthly = await kasService.getMonthlyStatus();
+        const lastExpense = await kasService.getLastExpense();
+
+        let text = `
 💰 *RINGKASAN BUKU KAS KELAS*
 
-💵 *Total Pemasukan* : ${formatter.formatRupiah(summary.totalMasuk)}
+💵 *Total Pemasukan*   : ${formatter.formatRupiah(summary.totalMasuk)}
 💸 *Total Pengeluaran* : ${formatter.formatRupiah(summary.totalKeluar)}
 --------------------------------
-💎 *SISA SALDO KAS*   : *${formatter.formatRupiah(summary.saldo)}*
+💎 *SISA SALDO KAS*     : *${formatter.formatRupiah(summary.saldo)}*
+
+👥 *Status Bulan ${monthly.monthName}*:
+• ✅ *Lunas* : ${monthly.totalPaid} Mahasiswa
+• 🟡 *Cicil* : ${monthly.totalPartial} Mahasiswa
+• ❌ *Belum* : ${monthly.totalUnpaid} Mahasiswa
 `.trim();
+
+        if (lastExpense) {
+          text += `\n\n🏷️ *Pengeluaran Terakhir:*\n• ${lastExpense.description} (*${formatter.formatRupiah(lastExpense.amount)}*)`;
+        }
+
         await reply(text);
       } else if (action === 'masuk') {
         const entries = parseKasEntries(rawText);
