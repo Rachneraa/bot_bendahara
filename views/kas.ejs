@@ -184,15 +184,23 @@
     <form action="/kas/bulk-add" method="POST" id="formBulkAddKas">
       <input type="hidden" name="mode" id="bulkModeInput" value="checklist">
 
-      <!-- Target Periode Minggu & Tahun -->
+      <!-- Target Periode Bulan & Tahun -->
       <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 16px;">
         <div class="form-group" style="margin-bottom: 0;">
-          <label for="bulkWeek">Minggu Iuran Ke-</label>
-          <input type="number" id="bulkWeek" name="week_number" value="<%= typeof activeWeek !== 'undefined' ? activeWeek : 1 %>" min="1" max="52" required>
+          <label for="bulkMonth">Bulan Iuran</label>
+          <select id="bulkMonth" name="month" onchange="syncBulkYear(this)" style="padding: 9px 12px;">
+            <% (typeof monthsList !== 'undefined' ? monthsList : []).forEach(m => { 
+                 const isSel = (typeof activeMonth !== 'undefined' ? activeMonth : (new Date().getMonth() + 1)) === m.month && (typeof activeYear !== 'undefined' ? activeYear : new Date().getFullYear()) === m.year;
+            %>
+              <option value="<%= m.month %>" data-year="<%= m.year %>" <%= isSel ? 'selected' : '' %>>
+                <%= m.label %> <%= isSel ? '⭐ (Bulan Aktif)' : '' %>
+              </option>
+            <% }) %>
+          </select>
         </div>
         <div class="form-group" style="margin-bottom: 0;">
           <label for="bulkYear">Tahun</label>
-          <input type="number" id="bulkYear" name="year" value="<%= typeof currentYear !== 'undefined' ? currentYear : new Date().getFullYear() %>" required>
+          <input type="number" id="bulkYear" name="year" value="<%= typeof activeYear !== 'undefined' ? activeYear : new Date().getFullYear() %>" required>
         </div>
       </div>
 
@@ -225,8 +233,8 @@
 
         <!-- Container Daftar Mahasiswa -->
         <div id="memberChecklistContainer" style="max-height: 220px; overflow-y: auto; background: rgba(0, 0, 0, 0.25); border: 1px solid var(--border-color); border-radius: 8px; padding: 8px 12px;">
-          <% if (typeof weeklyStatus !== 'undefined' && weeklyStatus.all && weeklyStatus.all.length > 0) { %>
-            <% weeklyStatus.all.forEach(m => { %>
+          <% if (typeof monthlyStatus !== 'undefined' && monthlyStatus.all && monthlyStatus.all.length > 0) { %>
+            <% monthlyStatus.all.forEach(m => { %>
               <label class="member-check-row" data-name="<%= m.name.toLowerCase() %>" data-paid="<%= m.is_paid %>" style="display: flex; align-items: center; justify-content: space-between; padding: 6px 8px; border-radius: 6px; margin-bottom: 4px; cursor: pointer; transition: background 0.15s ease;">
                 <div style="display: flex; align-items: center; gap: 10px;">
                   <input type="checkbox" name="member_ids" value="<%= m.id %>" class="member-checkbox" onchange="updateSelectedCount()" style="width: auto; cursor: pointer;">
@@ -234,6 +242,8 @@
                 </div>
                 <% if (m.is_paid) { %>
                   <span class="badge badge-connected" style="font-size: 0.72rem; padding: 2px 8px;">✅ Lunas</span>
+                <% } else if (m.status === 'cicil') { %>
+                  <span class="badge" style="background: rgba(245, 158, 11, 0.15); color: #fbbf24; font-size: 0.72rem; padding: 2px 8px;">Cicil</span>
                 <% } else { %>
                   <span class="badge badge-disconnected" style="font-size: 0.72rem; padding: 2px 8px;">Belum</span>
                 <% } %>
@@ -291,6 +301,13 @@
 </div>
 
 <script>
+  function syncBulkYear(sel) {
+    const opt = sel.options[sel.selectedIndex];
+    if (opt && opt.dataset.year) {
+      document.getElementById('bulkYear').value = opt.dataset.year;
+    }
+  }
+
   function switchBulkTab(tab) {
     const paneChecklist = document.getElementById('paneChecklist');
     const paneText = document.getElementById('paneText');

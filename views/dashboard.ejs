@@ -112,8 +112,8 @@
   <div class="stat-card">
     <div class="stat-icon" style="color: var(--accent-amber);">📅</div>
     <div class="stat-info">
-      <p>Iuran Kas (Bulan 1 / Minggu <%= weeklyStatus.week %>)</p>
-      <h3><%= weeklyStatus.totalPaid %> / <%= weeklyStatus.totalMembers %> Lunas</h3>
+      <p>Iuran Kas Bulan <%= (typeof monthlyStatus !== 'undefined' && monthlyStatus.monthName) ? monthlyStatus.monthName : 'Aktif' %></p>
+      <h3><%= typeof monthlyStatus !== 'undefined' ? monthlyStatus.totalPaid : 0 %> / <%= totalMembers %> Lunas</h3>
     </div>
   </div>
 </div>

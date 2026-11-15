@@ -1,4 +1,4 @@
-<%- include('layout/header', { pageTitle: 'Data Mahasiswa & Iuran', pageDesc: 'Kelola data seluruh anggota kelas dan pantau pelunasan kas mingguan' }) %>
+<%- include('layout/header', { pageTitle: 'Data Mahasiswa & Iuran', pageDesc: 'Kelola data seluruh anggota kelas dan pantau pelunasan kas bulanan' }) %>
 
 <% if (typeof bulkStatus !== 'undefined' && bulkStatus === 'bulk_added') { %>
   <div class="alert alert-success" style="margin-bottom: 20px;">
@@ -6,36 +6,60 @@
   </div>
 <% } %>
 
-<!-- Toolbar Pemilih Minggu Semester -->
+<!-- Toolbar Pemilih Semester & Bulan -->
 <div class="glass-card" style="padding: 16px 22px; margin-bottom: 20px;">
-  <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 14px;">
-    <div style="display: flex; align-items: center; gap: 12px; flex-wrap: wrap;">
-      <label for="selectWeek" style="font-weight: 600; color: #fff; margin: 0;">📅 Pilih Minggu Kuliah:</label>
-      <select id="selectWeek" onchange="window.location.href='/members?week=' + this.value" style="width: auto; padding: 7px 14px; font-weight: 600;">
-        <% for (let w = 1; w <= 16; w++) { %>
-          <option value="<%= w %>" <%= selectedWeek === w ? 'selected' : '' %>>
-            Minggu ke-<%= w %> <%= activeWeek === w ? '🌟 (Minggu Aktif)' : '' %>
-          </option>
-        <% } %>
-      </select>
+  <!-- Tab Pilihan Semester -->
+  <div style="display: flex; gap: 8px; margin-bottom: 14px; flex-wrap: wrap;">
+    <% (typeof semesters !== 'undefined' ? semesters : []).forEach(s => { %>
+      <a href="/members?semester=<%= s.semesterNumber %>&month=<%= s.months[0].month %>&year=<%= s.months[0].year %>" 
+         class="btn <%= selectedSemester === s.semesterNumber ? 'btn-primary' : 'btn-secondary' %> btn-sm"
+         style="border-radius: 20px; font-weight: 600; padding: 6px 14px;">
+        🎓 <%= s.title %> (<%= s.academicYear %>)
+      </a>
+    <% }) %>
+  </div>
 
-      <% if (selectedWeek !== activeWeek) { %>
-        <form action="/members/set-active-week" method="POST" style="display: inline;">
-          <input type="hidden" name="active_week" value="<%= selectedWeek %>">
-          <button type="submit" class="btn btn-secondary btn-sm" title="Jadikan minggu ini sebagai patokan minggu perkuliahan berjalan">
-            ⭐ Set Jadi Minggu Aktif
+  <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 14px; border-top: 1px solid rgba(255,255,255,0.08); padding-top: 14px;">
+    <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
+      <span style="font-weight: 600; color: #fff; margin-right: 4px; font-size: 0.9rem;">📅 Bulan:</span>
+      <% (typeof currentSemesterInfo !== 'undefined' && currentSemesterInfo.months ? currentSemesterInfo.months : []).forEach((m) => { 
+           const isSelected = selectedMonth === m.month && selectedYear === m.year;
+           const isActive = activeMonth === m.month && activeYear === m.year;
+           const isCalendarCurrent = nowMonth === m.month && nowYear === m.year;
+      %>
+        <a href="/members?semester=<%= selectedSemester %>&month=<%= m.month %>&year=<%= m.year %>"
+           style="padding: 7px 14px; border-radius: 8px; font-weight: 600; text-decoration: none; font-size: 0.88rem; transition: all 0.2s; display: inline-flex; align-items: center; gap: 6px; <%= isSelected ? 'background: var(--accent-primary); color: #fff; box-shadow: 0 0 12px rgba(99, 102, 241, 0.4); border: 1px solid var(--accent-primary);' : 'background: rgba(255,255,255,0.06); color: var(--text-color); border: 1px solid var(--border-color);' %>">
+          <span><%= m.shortLabel %></span>
+          <% if (isActive) { %>
+            <span title="Bulan Aktif Kas" style="font-size: 0.75rem;">⭐</span>
+          <% } else if (isCalendarCurrent) { %>
+            <span title="Bulan Kalender Saat Ini" style="font-size: 0.7rem; color: var(--accent-emerald);">●</span>
+          <% } %>
+        </a>
+      <% }) %>
+
+      <% if (selectedMonth !== activeMonth || selectedYear !== activeYear) { %>
+        <form action="/members/set-active-month" method="POST" style="display: inline; margin-left: 6px;">
+          <input type="hidden" name="semester" value="<%= selectedSemester %>">
+          <input type="hidden" name="month" value="<%= selectedMonth %>">
+          <input type="hidden" name="year" value="<%= selectedYear %>">
+          <button type="submit" class="btn btn-secondary btn-sm" title="Jadikan bulan ini sebagai patokan kas berjalan">
+            ⭐ Set Jadi Bulan Aktif
           </button>
         </form>
       <% } else { %>
-        <span class="badge badge-connected">🌟 Minggu Berjalan</span>
+        <span class="badge badge-connected" style="margin-left: 6px;">🌟 Bulan Berjalan</span>
       <% } %>
     </div>
 
     <div>
       <span style="font-size: 0.88rem; color: var(--text-muted);">
-        Status Minggu ke-<%= selectedWeek %>: 
-        <strong style="color: var(--accent-emerald);"><%= weeklyStatus.totalPaid %> Lunas</strong> • 
-        <strong style="color: var(--accent-rose);"><%= weeklyStatus.totalUnpaid %> Belum</strong>
+        Status <%= selectedMonthName %>: 
+        <strong style="color: var(--accent-emerald);"><%= monthlyStatus.totalPaid %> Lunas</strong> • 
+        <% if (monthlyStatus.totalPartial > 0) { %>
+          <strong style="color: var(--accent-amber);"><%= monthlyStatus.totalPartial %> Cicil</strong> • 
+        <% } %>
+        <strong style="color: var(--accent-rose);"><%= monthlyStatus.totalUnpaid %> Belum</strong>
       </span>
     </div>
   </div>
@@ -43,9 +67,9 @@
 
 <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 16px; margin-bottom: 16px;">
   <div>
-    <h2 style="font-size: 1.2rem; font-weight: 700;">Daftar Mahasiswa (Iuran Minggu ke-<%= selectedWeek %>)</h2>
+    <h2 style="font-size: 1.2rem; font-weight: 700;">Daftar Mahasiswa (Iuran Bulan <%= selectedMonthName %> <%= selectedYear %>)</h2>
     <p style="font-size: 0.85rem; color: var(--text-muted);">
-      Total: <%= weeklyStatus.totalMembers %> mahasiswa aktif
+      Total: <%= monthlyStatus.totalMembers %> mahasiswa aktif • Target Kas: <%= formatter.formatRupiah(monthlyStatus.target) %> / bulan
     </p>
   </div>
   <div style="display: flex; gap: 10px; flex-wrap: wrap;">
@@ -68,7 +92,7 @@
           <th>Nama Mahasiswa</th>
           <th>NIM</th>
           <th>Status Anggota</th>
-          <th>Iuran Minggu Ini</th>
+          <th>Iuran Bulan Ini</th>
           <th style="text-align: right;">Aksi</th>
         </tr>
       </thead>
@@ -81,8 +105,9 @@
           </tr>
         <% } %>
         <% members.forEach((m, idx) => { 
-             const iuranInfo = weeklyStatus.all.find(w => w.id === m.id);
-             const isPaid = iuranInfo && iuranInfo.is_paid === 1;
+             const info = monthlyStatus.all.find(w => w.id === m.id);
+             const isLunas = info && info.status === 'lunas';
+             const isCicil = info && info.status === 'cicil';
         %>
           <tr>
             <td><%= idx + 1 %></td>
@@ -104,15 +129,27 @@
               <% } %>
             </td>
             <td>
-              <% if (isPaid) { %>
-                <span class="badge badge-connected">✅ Lunas (<%= formatter.formatRupiah(iuranInfo.amount) %>)</span>
+              <% if (isLunas) { %>
+                <span class="badge badge-connected">✅ Lunas (<%= formatter.formatRupiah(info.allocated) %>)</span>
+                <% if (info.credit > 0) { %>
+                  <div style="font-size: 0.76rem; color: #34d399; margin-top: 4px; font-weight: 500;">
+                    ↪ (+<%= formatter.formatRupiah(info.credit) %> masuk ke bulan berikutnya)
+                  </div>
+                <% } %>
+              <% } else if (isCicil) { %>
+                <span class="badge" style="background: rgba(245, 158, 11, 0.15); color: #fbbf24; border: 1px solid rgba(245, 158, 11, 0.3);">
+                  🟡 Cicil (<%= formatter.formatRupiah(info.allocated) %> / <%= formatter.formatRupiah(monthlyStatus.target) %>)
+                </span>
+                <div style="font-size: 0.76rem; color: #fb7185; margin-top: 4px;">
+                  Kurang: <%= formatter.formatRupiah(info.remaining) %>
+                </div>
               <% } else { %>
                 <span class="badge badge-disconnected">❌ Belum Bayar</span>
               <% } %>
             </td>
             <td style="text-align: right;">
               <div style="display: inline-flex; gap: 8px;">
-                <% if (!isPaid) { %>
+                <% if (!isLunas) { %>
                   <button 
                     type="button"
                     data-id="<%= m.id %>" 
@@ -236,31 +273,35 @@ Dewi Anggraini
   </div>
 </div>
 
-<!-- Modal Bayar Iuran Cepat -->
+<!-- Modal Bayar Iuran Cepat (Bulanan & Rollover) -->
 <div class="modal-overlay" id="modalQuickPay">
   <div class="modal-content">
     <div class="card-header">
-      <h3 class="card-title">Konfirmasi Bayar Iuran</h3>
+      <h3 class="card-title">💵 Catat Pembayaran Iuran Kas</h3>
       <button onclick="closeModal('modalQuickPay')" style="background: none; border: none; color: var(--text-muted); cursor: pointer; font-size: 1.2rem;">✕</button>
     </div>
     <form action="/members/pay-iuran" method="POST">
       <input type="hidden" id="payMemberId" name="member_id">
-      <input type="hidden" name="week_number" value="<%= selectedWeek %>">
+      <input type="hidden" name="semester" value="<%= selectedSemester %>">
+      <input type="hidden" name="month" value="<%= selectedMonth %>">
       <input type="hidden" name="year" value="<%= selectedYear %>">
 
-      <p style="font-size: 0.95rem; margin-bottom: 16px;">
-        Tandai lunas iuran minggu ke-<strong><%= selectedWeek %> (<%= selectedYear %>)</strong> untuk mahasiswa: <br>
+      <p style="font-size: 0.95rem; margin-bottom: 12px;">
+        Pembayaran kas bulan <strong><%= selectedMonthName %> (<%= selectedYear %>)</strong> untuk: <br>
         <strong id="payMemberName" style="color: var(--accent-primary); font-size: 1.1rem;"></strong>
       </p>
 
       <div class="form-group">
-        <label for="payAmount">Nominal Iuran (Rp)</label>
-        <input type="number" id="payAmount" name="amount" value="10000" required>
+        <label for="payAmount">Nominal Bayar (Rp)</label>
+        <input type="number" id="payAmount" name="amount" value="10000" min="1000" step="500" required>
+        <small style="color: var(--text-dim); display: block; margin-top: 6px; line-height: 1.4;">
+          💡 <strong>Aturan Kas Kelas:</strong> Maksimal pembayaran kas per bulan adalah 10.000. Jika mahasiswa membayar lebih (misal 20.000 atau 30.000), sisa kelebihannya otomatis dialokasikan untuk melunasi bulan berikutnya!
+        </small>
       </div>
 
       <div style="display: flex; justify-content: flex-end; gap: 10px; margin-top: 20px;">
         <button type="button" onclick="closeModal('modalQuickPay')" class="btn btn-secondary">Batal</button>
-        <button type="submit" class="btn btn-success">✅ Konfirmasi Pembayaran</button>
+        <button type="submit" class="btn btn-success">✅ Simpan Pembayaran</button>
       </div>
     </form>
   </div>

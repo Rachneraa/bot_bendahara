@@ -334,15 +334,136 @@ const MONTH_NAMES = [
 ];
 const DEFAULT_KAS_TARGET = 10000;
 
+export const SEMESTER_START_YEAR = 2026;
+export const SEMESTER_START_MONTH = 10; // Oktober 2026 (Semester 1 TA 2026/2027)
+
 // Indeks bulan absolut (tahun*12 + bulan) agar mudah menghitung selisih bulan lintas tahun
-function periodIndex(year, month) {
+export function periodIndex(year, month) {
   return year * 12 + (month - 1);
 }
 
-function periodStartSql(idx) {
+export function periodStartSql(idx) {
   const y = Math.floor(idx / 12);
   const m = (idx % 12) + 1;
   return `${y}-${String(m).padStart(2, '0')}-01 00:00:00`;
+}
+
+export function getSemesterInfo(semesterNumber = 1) {
+  const sem = Math.max(1, parseInt(semesterNumber, 10) || 1);
+  const baseMonthOffset = (sem - 1) * 6;
+  const startIdx = periodIndex(SEMESTER_START_YEAR, SEMESTER_START_MONTH) + baseMonthOffset;
+
+  const months = [];
+  for (let i = 0; i < 6; i++) {
+    const idx = startIdx + i;
+    const y = Math.floor(idx / 12);
+    const m = (idx % 12) + 1;
+    months.push({
+      semesterNumber: sem,
+      monthIndexInSemester: i + 1,
+      month: m,
+      year: y,
+      monthName: MONTH_NAMES[m],
+      label: `${MONTH_NAMES[m]} ${y}`,
+      shortLabel: MONTH_NAMES[m]
+    });
+  }
+
+  const isGanjil = sem % 2 === 1;
+  const startYear = months[0].year;
+  const endYear = months[5].year;
+  const academicYear = startYear === endYear ? `${startYear}` : `${startYear}/${endYear}`;
+
+  return {
+    semesterNumber: sem,
+    title: `Semester ${sem} (${isGanjil ? 'Ganjil' : 'Genap'})`,
+    academicYear,
+    months
+  };
+}
+
+export function findSemesterByMonth(month, year) {
+  const m = parseInt(month, 10);
+  const y = parseInt(year, 10);
+  const targetIdx = periodIndex(y, m);
+  const baseIdx = periodIndex(SEMESTER_START_YEAR, SEMESTER_START_MONTH);
+  const diff = targetIdx - baseIdx;
+  if (diff < 0) {
+    return { semesterNumber: 1, monthIndexInSemester: 1 };
+  }
+  const semNumber = Math.floor(diff / 6) + 1;
+  const monthIndexInSemester = (diff % 6) + 1;
+  return { semesterNumber: semNumber, monthIndexInSemester };
+}
+
+export function getSemesters() {
+  const now = new Date();
+  const curr = findSemesterByMonth(now.getMonth() + 1, now.getFullYear());
+  const maxSem = Math.max(2, curr.semesterNumber);
+  const list = [];
+  for (let s = 1; s <= maxSem; s++) {
+    list.push(getSemesterInfo(s));
+  }
+  return list;
+}
+
+export function getAllMonthsList() {
+  const semesters = getSemesters();
+  const months = [];
+  semesters.forEach(s => {
+    s.months.forEach(m => {
+      months.push({
+        ...m,
+        label: `${m.monthName} ${m.year} (${s.title})`
+      });
+    });
+  });
+  return months;
+}
+
+export async function getActiveKasPeriod() {
+  const now = new Date();
+  const savedMonth = await getSetting('active_kas_month', '');
+  const savedYear = await getSetting('active_kas_year', '');
+  const savedSemester = await getSetting('active_kas_semester', '');
+
+  let m = parseInt(savedMonth, 10);
+  let y = parseInt(savedYear, 10);
+  let sem = parseInt(savedSemester, 10);
+
+  if (!m || m < 1 || m > 12 || !y) {
+    m = now.getMonth() + 1;
+    y = now.getFullYear();
+    const semInfo = findSemesterByMonth(m, y);
+    sem = semInfo.semesterNumber;
+  } else if (!sem) {
+    const semInfo = findSemesterByMonth(m, y);
+    sem = semInfo.semesterNumber;
+  }
+
+  return {
+    semester: sem,
+    month: m,
+    year: y,
+    monthName: MONTH_NAMES[m] || `Bulan ${m}`
+  };
+}
+
+export async function setActiveKasPeriod(semester, month, year) {
+  const m = parseInt(month, 10);
+  const y = parseInt(year, 10);
+  const sem = parseInt(semester, 10) || findSemesterByMonth(m, y).semesterNumber;
+
+  if (m && m >= 1 && m <= 12) {
+    await setSetting('active_kas_month', String(m));
+  }
+  if (y) {
+    await setSetting('active_kas_year', String(y));
+  }
+  if (sem) {
+    await setSetting('active_kas_semester', String(sem));
+  }
+  return { semester: sem, month: m, year: y };
 }
 
 export async function getKasTarget() {
@@ -358,7 +479,7 @@ export async function setKasTarget(amount) {
 }
 
 /**
- * Bulan pertama kewajiban kas. Default: bulan pembayaran kas anggota paling awal.
+ * Bulan pertama kewajiban kas. Default: Semester 1 (Oktober 2025).
  */
 export async function getKasStartPeriod() {
   const saved = await getSetting('kas_start_period', '');
@@ -366,11 +487,7 @@ export async function getKasStartPeriod() {
   if (match) {
     return { year: parseInt(match[1], 10), month: parseInt(match[2], 10), isDefault: false };
   }
-  const [row] = await query(
-    "SELECT MIN(created_at) AS first_at FROM kas_transactions WHERE type = 'masuk' AND member_id IS NOT NULL"
-  );
-  const d = row?.first_at ? new Date(row.first_at) : new Date();
-  return { year: d.getFullYear(), month: d.getMonth() + 1, isDefault: true };
+  return { year: SEMESTER_START_YEAR, month: SEMESTER_START_MONTH, isDefault: true };
 }
 
 export async function setKasStartPeriod(month, year) {
@@ -384,10 +501,9 @@ export async function setKasStartPeriod(month, year) {
 }
 
 /**
- * Status kas bulanan dengan dukungan cicilan.
- * Semua pembayaran anggota (sejak bulan mulai) dijumlahkan lalu dialokasikan ke bulan
- * paling lama dulu: kelebihan otomatis jadi bayar dimuka bulan berikutnya,
- * dan pembayaran telat otomatis melunasi tunggakan bulan sebelumnya.
+ * Status kas bulanan dengan aturan maksimal 10k per bulan & kelebihan masuk ke bulan berikutnya.
+ * Semua pembayaran kas anggota sejak periode awal dijumlahkan,
+ * lalu dialokasikan secara kronologis maksimal 10.000 per bulan.
  */
 export async function getMonthlyStatus(month = null, year = null, rawInput = '') {
   const now = new Date();
@@ -402,9 +518,6 @@ export async function getMonthlyStatus(month = null, year = null, rawInput = '')
   const cleanInput = String(rawInput || '').trim().toLowerCase();
   const isNamedMonth = /^(jan|feb|mar|apr|mei|jun|jul|agu|agt|sep|okt|nov|des)/i.test(cleanInput);
 
-  // Jika input berupa nomor urut (contoh: 1, 2) atau teks ordinal (pertama, kedua)
-  // dan kas kelas dimulai di bulan selain Januari (misal Oktober):
-  // Nomor urut 1 berarti Bulan ke-1 Periode Kas (Oktober), 2 = November, dst.
   if (start.month > 1 && !isNamedMonth && cleanInput) {
     const numMatch = cleanInput.match(/^(?:bulan\s*)?([1-9]|1[0-2])$/i);
     const numVal = numMatch 
@@ -452,8 +565,9 @@ export async function getMonthlyStatus(month = null, year = null, rawInput = '')
 
     if (monthsBefore >= 0) {
       const owedBefore = target * monthsBefore;
-      allocated = Math.min(target, Math.max(0, paidTotal - owedBefore));
-      credit = Math.max(0, paidTotal - owedBefore - target);
+      const remainingForThisAndFuture = Math.max(0, paidTotal - owedBefore);
+      allocated = Math.min(target, remainingForThisAndFuture);
+      credit = Math.max(0, remainingForThisAndFuture - target); // Sisa > 10k yang otomatis masuk ke bulan berikutnya
       arrears = Math.max(0, owedBefore - paidTotal);
     }
 
@@ -464,7 +578,7 @@ export async function getMonthlyStatus(month = null, year = null, rawInput = '')
       paid_this_month: paidThisMonth,
       total_paid: paidThisMonth,
       allocated,
-      remaining: target - allocated,
+      remaining: Math.max(0, target - allocated),
       credit,
       arrears,
       status,
@@ -482,6 +596,8 @@ export async function getMonthlyStatus(month = null, year = null, rawInput = '')
     ? `${monthName.toUpperCase()} (Bulan ke-${relativeIndex} Kas)` 
     : monthName.toUpperCase();
 
+  const semInfo = findSemesterByMonth(targetMonth, targetYear);
+
   return {
     month: targetMonth,
     monthName,
@@ -489,6 +605,8 @@ export async function getMonthlyStatus(month = null, year = null, rawInput = '')
     isRelativeMonth,
     relativeIndex,
     year: targetYear,
+    semester: semInfo.semesterNumber,
+    monthIndexInSemester: semInfo.monthIndexInSemester,
     target,
     startPeriod: start,
     beforeStart: monthsBefore < 0,
@@ -571,19 +689,58 @@ export async function getTestSessionStatus() {
   };
 }
 
-export async function recordBulkKasChecklist({ member_ids, amount, week_number, year, created_by, source = 'web_dashboard' }) {
+export async function recordIuranMonthly({ member_id, month, year, amount, created_by, source = 'web_dashboard' }) {
+  const [member] = await query('SELECT name FROM members WHERE id = ?', [member_id]);
+  const memberName = member ? member.name : `Member #${member_id}`;
+  const m = parseInt(month, 10) || (new Date().getMonth() + 1);
+  const y = parseInt(year, 10) || new Date().getFullYear();
+  const mName = MONTH_NAMES[m] || `Bulan ${m}`;
+  const desc = `Iuran Kas Bulan ${mName} (${y}) - ${memberName}`;
+
+  // 1. Simpan transaksi kas masuk
+  const txId = await addTransaction({
+    type: 'masuk',
+    amount,
+    member_id,
+    description: desc,
+    source,
+    created_by
+  });
+
+  // 2. Evaluasi status bulanan terkini
+  const statusMonth = await getMonthlyStatus(m, y);
+  const memberInfo = (statusMonth.all || []).find(r => r.id === member_id) || {};
+
+  return {
+    txId,
+    memberName,
+    month: m,
+    year: y,
+    monthName: mName,
+    amount,
+    allocated: memberInfo.allocated || Math.min(statusMonth.target, amount),
+    credit: memberInfo.credit || 0,
+    remaining: memberInfo.remaining || 0,
+    isLunas: memberInfo.status === 'lunas',
+    target: statusMonth.target,
+    status: memberInfo.status || 'lunas'
+  };
+}
+
+export async function recordBulkKasChecklist({ member_ids, amount, month = null, year = null, week_number = null, created_by, source = 'web_dashboard' }) {
   const successList = [];
   let totalAmount = 0;
   const numAmount = parseFloat(amount) || 10000;
-  const week = parseInt(week_number, 10) || 1;
   const yr = parseInt(year, 10) || new Date().getFullYear();
+  const activePeriod = await getActiveKasPeriod();
+  const targetMonth = month ? parseInt(month, 10) : (activePeriod.month || (new Date().getMonth() + 1));
 
   for (const mId of (member_ids || [])) {
     const id = parseInt(mId, 10);
     if (!id) continue;
-    const res = await recordIuranWeekly({
+    const res = await recordIuranMonthly({
       member_id: id,
-      week_number: week,
+      month: targetMonth,
       year: yr,
       amount: numAmount,
       created_by,
@@ -592,7 +749,9 @@ export async function recordBulkKasChecklist({ member_ids, amount, week_number, 
     successList.push({
       member_id: id,
       name: res.memberName,
-      amount: numAmount
+      amount: numAmount,
+      isLunas: res.isLunas,
+      credit: res.credit
     });
     totalAmount += numAmount;
   }
@@ -600,16 +759,18 @@ export async function recordBulkKasChecklist({ member_ids, amount, week_number, 
   return {
     count: successList.length,
     totalAmount,
-    week,
+    month: targetMonth,
     year: yr,
+    monthName: MONTH_NAMES[targetMonth] || `Bulan ${targetMonth}`,
     successList
   };
 }
 
-export async function recordBulkKasText({ raw_text, week_number, year, created_by, source = 'web_dashboard' }) {
+export async function recordBulkKasText({ raw_text, month = null, year = null, week_number = null, created_by, source = 'web_dashboard' }) {
   const entries = parseKasEntries(raw_text || '');
-  const week = parseInt(week_number, 10) || 1;
   const yr = parseInt(year, 10) || new Date().getFullYear();
+  const activePeriod = await getActiveKasPeriod();
+  const targetMonth = month ? parseInt(month, 10) : (activePeriod.month || (new Date().getMonth() + 1));
 
   const successList = [];
   const generalList = [];
@@ -621,9 +782,9 @@ export async function recordBulkKasText({ raw_text, week_number, year, created_b
     const matchResult = await searchMemberFuzzy(entry.name);
     if (matchResult.status === 'single' || (matchResult.status === 'ambiguous' && matchResult.matches.length > 0)) {
       const member = matchResult.matches[0];
-      const res = await recordIuranWeekly({
+      const res = await recordIuranMonthly({
         member_id: member.id,
-        week_number: week,
+        month: targetMonth,
         year: yr,
         amount: entry.amount,
         created_by,
@@ -633,7 +794,9 @@ export async function recordBulkKasText({ raw_text, week_number, year, created_b
         member_id: member.id,
         name: member.name,
         amount: entry.amount,
-        isTypo: matchResult.type === 'fuzzy'
+        isTypo: matchResult.type === 'fuzzy',
+        isLunas: res.isLunas,
+        credit: res.credit
       });
       totalAmount += entry.amount;
     } else {
@@ -656,8 +819,9 @@ export async function recordBulkKasText({ raw_text, week_number, year, created_b
   return {
     count: successList.length + generalList.length,
     totalAmount,
-    week,
+    month: targetMonth,
     year: yr,
+    monthName: MONTH_NAMES[targetMonth] || `Bulan ${targetMonth}`,
     successList,
     generalList
   };
@@ -678,38 +842,32 @@ export async function getLastExpense() {
   } : null;
 }
 
-export async function correctMemberIuran({ member_id, new_amount, week_number = null, year = null, created_by, source = 'bot_wa' }) {
+export async function correctMemberIuran({ member_id, new_amount, month = null, year = null, week_number = null, created_by, source = 'bot_wa' }) {
   const [member] = await query('SELECT id, name FROM members WHERE id = ?', [member_id]);
   if (!member) throw new Error('Mahasiswa tidak ditemukan');
 
-  const targetYear = year ? parseInt(year, 10) : new Date().getFullYear();
-  let targetWeek = week_number ? parseInt(week_number, 10) : null;
-  if (!targetWeek) {
-    const [row] = await query("SELECT value FROM settings WHERE key_name = 'active_semester_week' LIMIT 1");
-    targetWeek = row && row.value ? parseInt(row.value, 10) : 1;
-  }
+  const activePeriod = await getActiveKasPeriod();
+  const targetMonth = month ? parseInt(month, 10) : activePeriod.month;
+  const targetYear = year ? parseInt(year, 10) : (activePeriod.year || new Date().getFullYear());
+  const mName = MONTH_NAMES[targetMonth] || `Bulan ${targetMonth}`;
 
-  // Ambil data iuran saat ini di iuran_weekly
-  const [currentIuran] = await query(`
-    SELECT id, amount, transaction_id 
-    FROM iuran_weekly 
-    WHERE member_id = ? AND week_number = ? AND year = ?
-    LIMIT 1
-  `, [member_id, targetWeek, targetYear]);
+  // Ambil transaksi kas masuk terkait mahasiswa ini pada bulan & tahun tersebut
+  const [tx] = await query(`
+    SELECT id, amount 
+    FROM kas_transactions 
+    WHERE member_id = ? AND type = 'masuk' 
+      AND (description LIKE ? OR (created_at >= ? AND created_at < ?))
+    ORDER BY id DESC LIMIT 1
+  `, [
+    member_id, 
+    `%Bulan ${mName} (${targetYear})%`,
+    `${targetYear}-${String(targetMonth).padStart(2, '0')}-01 00:00:00`,
+    targetMonth === 12 
+      ? `${targetYear + 1}-01-01 00:00:00`
+      : `${targetYear}-${String(targetMonth + 1).padStart(2, '0')}-01 00:00:00`
+  ]);
 
-  // Jika belum ada di iuran_weekly, coba hitung dari kas_transactions
-  let currentPaid = 0;
-  if (currentIuran) {
-    currentPaid = Number(currentIuran.amount || 0);
-  } else {
-    const [sumRow] = await query(`
-      SELECT COALESCE(SUM(amount), 0) AS current_paid
-      FROM kas_transactions
-      WHERE member_id = ? AND type = 'masuk'
-    `, [member_id]);
-    currentPaid = Number(sumRow?.current_paid || 0);
-  }
-
+  const currentPaid = tx ? Number(tx.amount || 0) : 0;
   const targetNewAmount = Math.max(0, parseInt(new_amount, 10) || 0);
   const target = await getKasTarget();
 
@@ -717,6 +875,7 @@ export async function correctMemberIuran({ member_id, new_amount, week_number = 
     return {
       unchanged: true,
       member,
+      monthName: mName,
       oldAmount: currentPaid,
       newAmount: targetNewAmount,
       diff: 0,
@@ -727,94 +886,37 @@ export async function correctMemberIuran({ member_id, new_amount, week_number = 
   }
 
   const diff = targetNewAmount - currentPaid;
-  let txId = currentIuran?.transaction_id || null;
-
   if (targetNewAmount === 0) {
-    // Koreksi ke 0: Hapus data iuran dan transaksi kas masuk terkait
-    if (txId) {
-      await query('DELETE FROM kas_transactions WHERE id = ?', [txId]);
+    if (tx) {
+      await query('DELETE FROM kas_transactions WHERE id = ?', [tx.id]);
     }
-    await query(`
-      DELETE FROM kas_transactions 
-      WHERE member_id = ? AND type = 'masuk' AND description LIKE ?
-    `, [member_id, `%Minggu ke-${targetWeek} (${targetYear})%`]);
-
-    await query(`
-      DELETE FROM iuran_weekly 
-      WHERE member_id = ? AND week_number = ? AND year = ?
-    `, [member_id, targetWeek, targetYear]);
+  } else if (tx) {
+    await query('UPDATE kas_transactions SET amount = ? WHERE id = ?', [targetNewAmount, tx.id]);
   } else {
-    // Koreksi ke nominal baru (> 0): perbarui transaksi kas masuk langsung
-    if (txId) {
-      const [existingTx] = await query('SELECT id FROM kas_transactions WHERE id = ?', [txId]);
-      if (existingTx) {
-        await query(`
-          UPDATE kas_transactions 
-          SET amount = ?, description = ?
-          WHERE id = ?
-        `, [
-          targetNewAmount,
-          `Iuran Kas Minggu ke-${targetWeek} (${targetYear}) - ${member.name}`,
-          txId
-        ]);
-      } else {
-        txId = null;
-      }
-    }
-
-    if (!txId) {
-      // Cari transaksi masuk yang ada milik anggota ini pada minggu bersangkutan
-      const [existingTx] = await query(`
-        SELECT id FROM kas_transactions 
-        WHERE member_id = ? AND type = 'masuk' AND description LIKE ?
-        ORDER BY id DESC LIMIT 1
-      `, [member_id, `%Minggu ke-${targetWeek} (${targetYear})%`]);
-
-      if (existingTx) {
-        txId = existingTx.id;
-        await query(`
-          UPDATE kas_transactions 
-          SET amount = ?, description = ?
-          WHERE id = ?
-        `, [
-          targetNewAmount,
-          `Iuran Kas Minggu ke-${targetWeek} (${targetYear}) - ${member.name}`,
-          txId
-        ]);
-      } else {
-        // Buat transaksi baru dengan nominal yang sudah benar
-        txId = await addTransaction({
-          type: 'masuk',
-          amount: targetNewAmount,
-          member_id,
-          description: `Iuran Kas Minggu ke-${targetWeek} (${targetYear}) - ${member.name}`,
-          source,
-          created_by
-        });
-      }
-    }
-
-    // Sinkronkan catatan di iuran_weekly
-    await query(`
-      INSERT INTO iuran_weekly (member_id, week_number, year, amount, transaction_id)
-      VALUES (?, ?, ?, ?, ?)
-      ON DUPLICATE KEY UPDATE 
-        amount = VALUES(amount),
-        transaction_id = VALUES(transaction_id),
-        paid_at = CURRENT_TIMESTAMP
-    `, [member_id, targetWeek, targetYear, targetNewAmount, txId]);
+    await addTransaction({
+      type: 'masuk',
+      amount: targetNewAmount,
+      member_id,
+      description: `Iuran Kas Bulan ${mName} (${targetYear}) - ${member.name}`,
+      source,
+      created_by
+    });
   }
+
+  const monthStatus = await getMonthlyStatus(targetMonth, targetYear);
+  const memberInfo = (monthStatus.all || []).find(r => r.id === member_id) || {};
 
   return {
     unchanged: false,
     member,
+    monthName: mName,
     oldAmount: currentPaid,
     newAmount: targetNewAmount,
     diff,
-    txId,
     target,
-    isLunas: targetNewAmount >= target,
-    remaining: Math.max(0, target - targetNewAmount)
+    isLunas: memberInfo.status === 'lunas',
+    credit: memberInfo.credit || 0,
+    remaining: memberInfo.remaining || 0
   };
 }
 
@@ -833,6 +935,7 @@ export default {
   searchMemberFuzzy,
   levenshteinDistance,
   recordIuranWeekly,
+  recordIuranMonthly,
   recordBulkKasChecklist,
   recordBulkKasText,
   correctMemberIuran,
@@ -842,6 +945,12 @@ export default {
   setKasTarget,
   getKasStartPeriod,
   setKasStartPeriod,
+  getActiveKasPeriod,
+  setActiveKasPeriod,
+  getSemesters,
+  getSemesterInfo,
+  findSemesterByMonth,
+  getAllMonthsList,
   startTestSession,
   resetTestSession,
   getTestSessionStatus

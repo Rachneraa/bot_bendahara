@@ -163,7 +163,8 @@ router.get('/', requireAuth, async (req, res) => {
     const todayDay = formatter.getIndonesianDayName();
     const todaySchedules = await jadwalService.getTodaySchedules(todayDay);
     const members = await kasService.getMembers(true);
-    const weeklyStatus = await kasService.getWeeklyStatus();
+    const activePeriod = await kasService.getActiveKasPeriod();
+    const monthlyStatus = await kasService.getMonthlyStatus(activePeriod.month, activePeriod.year);
     const targetGroup = await messageService.getSetting('target_group_jid');
     const testGroup = await messageService.getSetting('test_group_jid');
 
@@ -192,7 +193,8 @@ router.get('/', requireAuth, async (req, res) => {
       todayDay,
       todaySchedules,
       totalMembers: members.length,
-      weeklyStatus,
+      monthlyStatus,
+      activePeriod,
       targetGroup,
       testGroup,
       formatter
@@ -434,20 +436,52 @@ router.get('/api/bot/status', requireAuth, async (req, res) => {
 router.get('/members', requireAuth, async (req, res) => {
   try {
     const members = await kasService.getMembers();
-    const activeSetting = await messageService.getSetting('active_semester_week', '1');
-    const activeWeek = parseInt(activeSetting, 10) || 1;
-    const selectedWeek = req.query.week ? parseInt(req.query.week, 10) : activeWeek;
-    const selectedYear = req.query.year ? parseInt(req.query.year, 10) : new Date().getFullYear();
+    const semesters = kasService.getSemesters();
+    const activePeriod = await kasService.getActiveKasPeriod();
+    const now = new Date();
+    const nowMonth = now.getMonth() + 1;
+    const nowYear = now.getFullYear();
 
-    const weeklyStatus = await kasService.getWeeklyStatus(selectedWeek, selectedYear);
+    const selectedSemester = req.query.semester ? parseInt(req.query.semester, 10) : activePeriod.semester;
+    const currentSemesterInfo = kasService.getSemesterInfo(selectedSemester);
+
+    let selectedMonth = req.query.month ? parseInt(req.query.month, 10) : null;
+    let selectedYear = req.query.year ? parseInt(req.query.year, 10) : null;
+
+    if (!selectedMonth || !selectedYear) {
+      const monthInSem = currentSemesterInfo.months.find(m => m.month === nowMonth && m.year === nowYear);
+      if (monthInSem) {
+        selectedMonth = nowMonth;
+        selectedYear = nowYear;
+      } else if (activePeriod.semester === selectedSemester) {
+        selectedMonth = activePeriod.month;
+        selectedYear = activePeriod.year;
+      } else {
+        selectedMonth = currentSemesterInfo.months[0].month;
+        selectedYear = currentSemesterInfo.months[0].year;
+      }
+    }
+
+    const monthlyStatus = await kasService.getMonthlyStatus(selectedMonth, selectedYear);
+    const selectedMonthObj = currentSemesterInfo.months.find(m => m.month === selectedMonth && m.year === selectedYear);
+    const selectedMonthName = selectedMonthObj ? selectedMonthObj.monthName : monthlyStatus.monthName;
 
     res.render('members', {
       user: req.session.user,
       members,
-      weeklyStatus,
-      selectedWeek,
+      semesters,
+      currentSemesterInfo,
+      selectedSemester,
+      selectedMonth,
       selectedYear,
-      activeWeek,
+      selectedMonthName,
+      monthlyStatus,
+      activePeriod,
+      activeMonth: activePeriod.month,
+      activeYear: activePeriod.year,
+      activeSemester: activePeriod.semester,
+      nowMonth,
+      nowYear,
       bulkStatus: req.query.status || null,
       bulkCount: req.query.count || 0,
       formatter
@@ -457,13 +491,23 @@ router.get('/members', requireAuth, async (req, res) => {
   }
 });
 
+router.post('/members/set-active-month', requireAuth, async (req, res) => {
+  try {
+    const { semester, month, year } = req.body;
+    await kasService.setActiveKasPeriod(semester, month, year);
+    res.redirect(`/members?semester=${semester}&month=${month}&year=${year}`);
+  } catch (err) {
+    res.redirect('/members?error=' + encodeURIComponent(err.message));
+  }
+});
+
 router.post('/members/set-active-week', requireAuth, async (req, res) => {
   try {
     const { active_week } = req.body;
     if (active_week) {
       await messageService.setSetting('active_semester_week', active_week);
     }
-    res.redirect('/members?week=' + active_week);
+    res.redirect('/members');
   } catch (err) {
     res.redirect('/members?error=' + encodeURIComponent(err.message));
   }
@@ -564,24 +608,26 @@ router.post('/members/delete/:id', requireAuth, async (req, res) => {
   }
 });
 
-// Bayar iuran cepat dari web
+// Bayar iuran cepat dari web (Bulanan & Rollover)
 router.post('/members/pay-iuran', requireAuth, async (req, res) => {
   try {
-    const { member_id, amount, week_number, year } = req.body;
+    const { member_id, amount, month, year, semester, week_number } = req.body;
     const nominal = parseFloat(amount) || 10000;
-    const week = parseInt(week_number, 10);
-    const yr = parseInt(year, 10);
+    const activePeriod = await kasService.getActiveKasPeriod();
+    const targetMonth = month ? parseInt(month, 10) : activePeriod.month;
+    const yr = year ? parseInt(year, 10) : activePeriod.year;
+    const sem = semester || kasService.findSemesterByMonth(targetMonth, yr).semesterNumber;
 
-    await kasService.recordIuranWeekly({
+    await kasService.recordIuranMonthly({
       member_id,
-      week_number: week,
+      month: targetMonth,
       year: yr,
       amount: nominal,
       created_by: req.session.user.username,
       source: 'web_dashboard'
     });
 
-    res.redirect('/members');
+    res.redirect(`/members?semester=${sem}&month=${targetMonth}&year=${yr}`);
   } catch (err) {
     res.redirect('/members?error=' + encodeURIComponent(err.message));
   }
@@ -921,9 +967,9 @@ router.get('/kas', requireAuth, async (req, res) => {
     const saldoSummary = await kasService.getSaldoSummary();
     const transactions = await kasService.getRecentTransactions(50);
     const members = await kasService.getMembers(true);
-    const activeSetting = await messageService.getSetting('active_semester_week', '1');
-    const activeWeek = parseInt(activeSetting, 10) || 1;
-    const weeklyStatus = await kasService.getWeeklyStatus(activeWeek, new Date().getFullYear());
+    const activePeriod = await kasService.getActiveKasPeriod();
+    const monthlyStatus = await kasService.getMonthlyStatus(activePeriod.month, activePeriod.year);
+    const monthsList = kasService.getAllMonthsList();
     const targetGroup = await messageService.getSetting('target_group_jid');
     const testGroup = await messageService.getSetting('test_group_jid');
 
@@ -932,8 +978,11 @@ router.get('/kas', requireAuth, async (req, res) => {
       saldoSummary,
       transactions,
       members,
-      weeklyStatus,
-      activeWeek,
+      monthlyStatus,
+      activePeriod,
+      activeMonth: activePeriod.month,
+      activeYear: activePeriod.year,
+      monthsList,
       currentYear: new Date().getFullYear(),
       targetGroup,
       testGroup,
@@ -973,16 +1022,17 @@ router.post('/kas/add', requireAuth, async (req, res) => {
 
 router.post('/kas/bulk-add', requireAuth, async (req, res) => {
   try {
-    const { mode, member_ids, default_amount, bulk_text, week_number, year, send_wa, wa_target } = req.body;
-    const week = parseInt(week_number, 10) || 1;
-    const yr = parseInt(year, 10) || new Date().getFullYear();
+    const { mode, member_ids, default_amount, bulk_text, month, year, send_wa, wa_target } = req.body;
+    const activePeriod = await kasService.getActiveKasPeriod();
+    const targetMonth = month ? parseInt(month, 10) : activePeriod.month;
+    const yr = parseInt(year, 10) || activePeriod.year;
     const username = req.session.user.username;
 
     let result;
     if (mode === 'text') {
       result = await kasService.recordBulkKasText({
         raw_text: bulk_text,
-        week_number: week,
+        month: targetMonth,
         year: yr,
         created_by: username,
         source: 'web_dashboard'
@@ -995,7 +1045,7 @@ router.post('/kas/bulk-add', requireAuth, async (req, res) => {
       result = await kasService.recordBulkKasChecklist({
         member_ids: ids,
         amount: default_amount,
-        week_number: week,
+        month: targetMonth,
         year: yr,
         created_by: username,
         source: 'web_dashboard'
@@ -1016,12 +1066,13 @@ router.post('/kas/bulk-add', requireAuth, async (req, res) => {
         if (destJid) {
           const saldo = await kasService.getSaldoSummary();
           let waMsg = `💰 *[LAPORAN KAS MASUK - WEB DASHBOARD]*\n`;
-          waMsg += `📅 Periode: Minggu ke-${week} (${yr})\n\n`;
+          waMsg += `📅 Periode: Bulan ${result.monthName} (${yr})\n\n`;
           waMsg += `✅ *Berhasil dicatat (${result.count} data):*\n`;
 
           const listToShow = result.successList || [];
           listToShow.forEach((item, idx) => {
-            waMsg += `${idx + 1}. *${item.name}* (${formatter.formatRupiah(item.amount)})\n`;
+            const surplusInfo = item.credit > 0 ? ` _(+${formatter.formatRupiah(item.credit)} ke bulan berikutnya)_` : '';
+            waMsg += `${idx + 1}. *${item.name}* (${formatter.formatRupiah(item.amount)})${surplusInfo}\n`;
           });
 
           if (result.generalList && result.generalList.length > 0) {
