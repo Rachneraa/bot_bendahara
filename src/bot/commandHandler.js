@@ -155,11 +155,30 @@ export async function handleInteractiveChoice(sock, messageInfo, sessionKey) {
 
   if (Date.now() - session.createdAt > 10 * 60 * 1000) {
     pendingAmbiguousSessions.delete(sessionKey);
-    await reply('⌛ Sesi konfirmasi telah kadaluarsa (lebih dari 10 menit). Silakan ulangi pencatatan kas.');
+    await reply('⌛ Sesi konfirmasi telah kadaluarsa (lebih dari 10 menit).');
     return true;
   }
 
   const cleanInput = rawText.replace(/^!bot\s*/i, '').trim().toLowerCase();
+
+  // 1. SESI KONFIRMASI PERUBAHAN MINGGU TENANG
+  if (session.type === 'sweat_week_override') {
+    if (cleanInput === '2' || cleanInput === 'batal' || cleanInput === 'cancel') {
+      pendingAmbiguousSessions.delete(sessionKey);
+      await reply('ℹ️ Pengaturan lama tetap digunakan. Perubahan Minggu Tenang dibatalkan.');
+      return true;
+    }
+
+    if (cleanInput === '1' || cleanInput === 'ganti' || cleanInput === 'baru') {
+      pendingAmbiguousSessions.delete(sessionKey);
+      await jadwalService.setSweatWeekConfig(session.newConfig);
+      await broadcastAnnouncement(sock, messageInfo, session.annText, reply);
+      return true;
+    }
+
+    await reply('⚠️ Pilihan tidak valid. Silakan balas dengan angka *1* (gunakan yang baru) atau *2* (tetap yang lama).');
+    return true;
+  }
 
   if (cleanInput === 'batal' || cleanInput === 'cancel') {
     session.queue.shift();
@@ -617,6 +636,353 @@ async function broadcastAnnouncement(sock, messageInfo, annText, reply) {
   }
 }
 
+export async function handleMingguTenangCommand(rawText, args, messageInfo, reply, isAdmin = false, sock = null) {
+  let offset = 2;
+  if ((args[1] || '').toLowerCase() === 'minggu' && (args[2] || '').toLowerCase() === 'tenang') {
+    offset = 3;
+  }
+  const action = (args[offset] || '').toLowerCase();
+
+  // 1. Help / Panduan jika tanpa argumen
+  if (!action || action === 'help') {
+    const allSchedules = await jadwalService.getAllSchedules(true);
+    let matkulList = '';
+    allSchedules.forEach((s, idx) => {
+      matkulList += `${idx + 1}. *${s.course_name}* (${s.day_of_week.toUpperCase()} ${formatter.formatTime(s.start_time)})\n`;
+    });
+
+    await reply(
+      `🗓️ *PANDUAN PENGATURAN MINGGU TENANG (SWEAT WEEK)* 🗓️\n\n` +
+      `*Kalender Akademik UNIKOM 2026/2027:*\n` +
+      `• *UTS*: 16 – 21 Nov 2026 (Ujian: 23 Nov – 5 Des 2026)\n` +
+      `• *UAS*: 25 – 30 Jan 2027 (Ujian: 1 – 13 Feb 2027)\n\n` +
+      `*Perintah Admin:*\n` +
+      `• \`!bot minggu-tenang uts <matkul1>, <matkul2>\`\n` +
+      `  _Aktifkan Minggu Tenang UTS. Matkul yang disebut tetap masuk/pengganti, sisanya libur & reminder dimatikan._\n` +
+      `• \`!bot minggu-tenang uts semua-libur\`\n` +
+      `  _Seluruh matkul 100% libur selama minggu tenang._\n` +
+      `• \`!bot minggu-tenang status\`\n` +
+      `  _Cek status aktif minggu tenang & daftar matkul libur/masuk._\n` +
+      `• \`!bot minggu-tenang reset\`\n` +
+      `  _Batalkan minggu tenang & kembalikan seluruh jadwal ke normal._\n\n` +
+      `*Daftar Mata Kuliah Aktif:*\n${matkulList.trim()}`
+    );
+    return;
+  }
+
+  // 2. Status
+  if (action === 'status') {
+    const cfg = await jadwalService.getSweatWeekConfig();
+    if (!cfg.isActive) {
+      await reply(
+        `ℹ️ *STATUS MINGGU TENANG: NONAKTIF*\n\n` +
+        `Saat ini perkuliahan berjalan normal sesuai jadwal mingguan.\n` +
+        `Ketik \`!bot minggu-tenang help\` untuk melihat panduan aktivasi.`
+      );
+      return;
+    }
+
+    const typeUpper = (cfg.type || 'uts').toUpperCase();
+    const startStr = formatter.formatDateIndo(new Date(cfg.startDate));
+    const endStr = formatter.formatDateIndo(new Date(cfg.endDate));
+
+    let excStr = '';
+    if (cfg.exceptions && cfg.exceptions.length > 0) {
+      cfg.exceptions.forEach((e, idx) => {
+        excStr += `${idx + 1}. *${e}*\n`;
+      });
+    } else {
+      excStr = `_Tidak ada (Seluruh mata kuliah 100% libur)_\n`;
+    }
+
+    await reply(
+      `📌 *STATUS MINGGU TENANG AKTIF (${typeUpper})* 📌\n\n` +
+      `🗓️ *Periode:* ${startStr} s.d ${endStr}\n\n` +
+      `✅ *Matkul Tetap Masuk / Pengganti:*\n${excStr}\n` +
+      `❌ *Matkul Lainnya:*\n` +
+      `_Otomatis diliburkan dan reminder hariannya dimatikan._\n\n` +
+      `💡 _Ketik \`!bot minggu-tenang reset\` untuk mengembalikan ke normal lebih awal._`
+    );
+    return;
+  }
+
+  // 3. Reset
+  if (action === 'reset' || action === 'batal' || action === 'normal') {
+    await jadwalService.resetSweatWeekConfig();
+    await reply(
+      `✅ *MODE MINGGU TENANG DINONAKTIFKAN*\n\n` +
+      `Seluruh jadwal dan sistem pengingat otomatis telah kembali normal.`
+    );
+    return;
+  }
+
+  // 4. Aktivasi UTS atau UAS
+  if (action === 'uts' || action === 'uas') {
+    const type = action;
+    const typeUpper = type.toUpperCase();
+    const remainingText = args.slice(offset + 1).join(' ').trim();
+
+    let exceptions = [];
+    const isAllLibur = !remainingText || /^(semua[- ]libur|none|kosong|libur|nihil)$/i.test(remainingText);
+    if (!isAllLibur) {
+      exceptions = remainingText.split(/[,|]/).map(s => s.trim()).filter(Boolean);
+    }
+
+    const dates = jadwalService.calculateSweatWeekDates(new Date(), type);
+    const startStr = formatter.formatDateIndo(new Date(dates.startDate));
+    const endStr = formatter.formatDateIndo(new Date(dates.endDate));
+
+    const exams = await jadwalService.getExamSchedules(type, true);
+
+    let annText =
+      `📢 *PENGUMUMAN MINGGU TENANG (SWEAT WEEK) SEBELUM ${typeUpper}* 📢\n\n` +
+      `Diberitahukan kepada seluruh rekan kelas bahwa perkuliahan memasuki masa Minggu Tenang:\n` +
+      `🗓️ *Periode:* ${startStr} s.d ${endStr}\n\n` +
+      `📌 *STATUS PERKULIAHAN:*\n\n`;
+
+    if (exceptions.length > 0) {
+      annText += `✅ *KULIAH TETAP MASUK / PENGGANTI:*\n`;
+      const allSchedules = await jadwalService.getAllSchedules(true);
+      exceptions.forEach((exName, idx) => {
+        const found = allSchedules.find(s => s.course_name.toLowerCase().includes(exName.toLowerCase()) || exName.toLowerCase().includes(s.course_name.toLowerCase()));
+        if (found) {
+          const jam = `${formatter.formatTime(found.start_time)} - ${formatter.formatTime(found.end_time)}`;
+          annText += `${idx + 1}. *${found.course_name}* (${found.day_of_week.toUpperCase()}, ${jam} WIB | ${found.note || 'Sesuai info'})\n`;
+          annText += `   👩‍🏫 Dosen: ${found.lecturer}\n`;
+        } else {
+          annText += `${idx + 1}. *${exName}*\n`;
+        }
+      });
+      annText += `\n❌ *PERKULIAHAN LAINNYA DILIBURKAN:*\n• Seluruh mata kuliah selain yang tercantum di atas diliburkan untuk persiapan ujian.\n\n`;
+    } else {
+      annText += `✅ *SELURUH PERKULIAHAN DILIBURKAN:*\n• Seluruh mata kuliah 100% libur untuk persiapan menghadapi ujian.\n\n`;
+    }
+
+    if (exams.length > 0) {
+      annText += `📋 *JADWAL PELAKSANAAN ${typeUpper}:*\n`;
+      exams.forEach((ex, idx) => {
+        const dateStr = formatter.formatDateIndo(new Date(ex.exam_date));
+        const jam = `${formatter.formatTime(ex.start_time)} s.d ${formatter.formatTime(ex.end_time)}`;
+        annText += `${idx + 1}. *${ex.course_name}*\n`;
+        annText += `   🗓️ ${dateStr} | 🕧 ${jam} WIB\n`;
+        annText += `   📍 Ruang: ${ex.room} | 📝 Sifat: ${ex.exam_format || 'Tatap Muka'}\n`;
+        if (ex.notes) annText += `   🎒 Catatan: ${ex.notes}\n`;
+      });
+      annText += `\n`;
+    } else {
+      annText += `ℹ️ *Catatan Jadwal Ujian:*\nJadwal resmi pelaksanaan ${typeUpper} akan diumumkan menyusul setelah rilis resmi dari fakultas.\n\n`;
+    }
+
+    annText += `🎯 _Manfaatkan waktu minggu tenang ini untuk belajar dan mempersiapkan ${typeUpper} dengan maksimal. Semangat dan sukses selalu!_ 🚀`;
+
+    // Cek apakah Minggu Tenang sudah diatur sebelumnya
+    const currentConfig = await jadwalService.getSweatWeekConfig();
+    const hasExisting = currentConfig && currentConfig.isActive;
+    const isForce = /\b(?:--force|-f)\b/i.test(rawText);
+
+    if (hasExisting && !isForce) {
+      const curStart = formatter.formatDateIndo(new Date(currentConfig.startDate));
+      const curEnd = formatter.formatDateIndo(new Date(currentConfig.endDate));
+      const curExceptions = (currentConfig.exceptions && currentConfig.exceptions.length > 0)
+        ? currentConfig.exceptions.join(', ')
+        : 'Tidak ada (100% Libur)';
+
+      const previewText =
+        `• *Tipe*    : ${(currentConfig.type || 'uts').toUpperCase()}\n` +
+        `• *Periode* : ${curStart} s.d ${curEnd}\n` +
+        `• *Masuk*   : ${curExceptions}`;
+
+      const { fromJid, senderNumber } = messageInfo;
+      const sessionKey = `${fromJid}_${senderNumber}`;
+      pendingAmbiguousSessions.set(sessionKey, {
+        type: 'sweat_week_override',
+        newConfig: {
+          type,
+          startDate: dates.startDate,
+          endDate: dates.endDate,
+          exceptions
+        },
+        annText,
+        createdAt: Date.now()
+      });
+
+      await reply(
+        `⚠️ *Minggu Tenang sudah diatur sebelumnya:*\n\n` +
+        `${previewText}\n\n` +
+        `Anda ingin menggantinya atau tetap menggunakan yang lama?\n\n` +
+        `👉 Ketik *1* jika ingin yang baru\n` +
+        `👉 Ketik *2* jika tetap yang lama (batal)\n\n` +
+        `_Reply / balas pesan ini dengan angka pilihan Anda (1 atau 2)._`
+      );
+      return;
+    }
+
+    await jadwalService.setSweatWeekConfig({
+      type,
+      startDate: dates.startDate,
+      endDate: dates.endDate,
+      exceptions
+    });
+
+    await broadcastAnnouncement(sock, messageInfo, annText, reply);
+    return;
+  }
+
+  await reply('❌ Perintah tidak dikenal. Ketik `!bot minggu-tenang help` untuk panduan.');
+}
+
+export async function handleUjianCommand(rawText, args, messageInfo, reply, isAdmin = false, sock = null) {
+  const action = (args[2] || '').toLowerCase();
+
+  // 1. List jadwal ujian jika tanpa aksi atau '!bot ujian list'
+  if (!action || action === 'list') {
+    const filterType = (args[3] || '').toLowerCase();
+    const typeParam = ['uts', 'uas'].includes(filterType) ? filterType : null;
+    const exams = await jadwalService.getExamSchedules(typeParam, true);
+
+    if (exams.length === 0) {
+      await reply(
+        `ℹ️ *BELUM ADA JADWAL UJIAN TERDAFTAR*\n\n` +
+        `Saat ini belum ada jadwal UTS/UAS yang diinput ke dalam sistem.\n\n` +
+        `*Cara Tambah Jadwal Ujian (Admin):*\n` +
+        `\`!bot ujian tambah <uts/uas> <YYYY-MM-DD> <HH:mm>-<HH:mm> <matkul> | <ruang> | <sifat/catatan>\`\n\n` +
+        `*Contoh:*\n` +
+        `\`!bot ujian tambah uts 2026-11-23 08:00-10:00 Kalkulus | R. 401 | Buka buku, bawa kalkulator\``
+      );
+      return;
+    }
+
+    let out = `📋 *DAFTAR JADWAL UJIAN (UTS / UAS)* 📋\n\n`;
+    exams.forEach((ex, idx) => {
+      const typeBadge = (ex.exam_type || 'uts').toUpperCase();
+      const dateStr = formatter.formatDateIndo(new Date(ex.exam_date));
+      const jam = `${formatter.formatTime(ex.start_time)} s.d ${formatter.formatTime(ex.end_time)}`;
+      out += `[ID: ${ex.id}] *${ex.course_name}* (${typeBadge})\n`;
+      out += `🗓️ Tanggal : *${dateStr}*\n`;
+      out += `🕧 Waktu   : ${jam} WIB\n`;
+      out += `📍 Ruang   : ${ex.room}\n`;
+      out += `📝 Sifat   : ${ex.exam_format || 'Tatap Muka'}\n`;
+      if (ex.notes) out += `🎒 Catatan : ${ex.notes}\n`;
+      out += `\n`;
+    });
+
+    out += `💡 _Ketik \`!bot ujian broadcast\` untuk menyiarkan jadwal ini ke grup._`;
+    await reply(out.trim());
+    return;
+  }
+
+  // 2. Broadcast Jadwal Ujian Lengkap ke Grup
+  if (action === 'broadcast' || action === 'siar' || action === 'umumkan') {
+    const filterType = (args[3] || '').toLowerCase();
+    const typeParam = ['uts', 'uas'].includes(filterType) ? filterType : null;
+    const exams = await jadwalService.getExamSchedules(typeParam, true);
+
+    if (exams.length === 0) {
+      await reply('❌ Tidak ada jadwal ujian aktif untuk disiarkan. Tambahkan jadwal terlebih dahulu.');
+      return;
+    }
+
+    const typeTitle = typeParam ? typeParam.toUpperCase() : 'UTS / UAS';
+    let ann =
+      `📢 *PENGUMUMAN JADWAL RESMI ${typeTitle}* 📢\n\n` +
+      `Diberitahukan kepada seluruh rekan kelas, berikut adalah jadwal pelaksanaan ujian:\n\n`;
+
+    exams.forEach((ex, idx) => {
+      const dateStr = formatter.formatDateIndo(new Date(ex.exam_date));
+      const jam = `${formatter.formatTime(ex.start_time)} s.d ${formatter.formatTime(ex.end_time)}`;
+      ann += `${idx + 1}. *${ex.course_name}* [${(ex.exam_type || 'uts').toUpperCase()}]\n`;
+      ann += `   🗓️ *${dateStr}*\n`;
+      ann += `   🕧 Waktu : ${jam} WIB\n`;
+      ann += `   📍 Ruang : *${ex.room}*\n`;
+      ann += `   📝 Sifat : ${ex.exam_format || 'Tatap Muka'}\n`;
+      if (ex.notes) ann += `   🎒 Catatan: ${ex.notes}\n`;
+      ann += `\n`;
+    });
+
+    ann +=
+      `⚠️ *TATA TERTIB & PERSIAPAN:*\n` +
+      `1. Wajib membawa Kartu Peserta Ujian (KPU) dan KTM.\n` +
+      `2. Berpakaian rapi dan hadir minimal 15 menit sebelum ujian dimulai.\n` +
+      `3. Bot akan mengirimkan pengingat H-1 (Pukul 20:00 WIB) dan 3 jam sebelum jadwal ujian.\n\n` +
+      `_Selamat menempuh ujian, junjung tinggi kejujuran dan semoga sukses!_ 🌟`;
+
+    await broadcastAnnouncement(sock, messageInfo, ann, reply);
+    return;
+  }
+
+  // 3. Tambah Jadwal Ujian
+  if (action === 'tambah' || action === 'add') {
+    const typeParam = (args[3] || 'uts').toLowerCase();
+    const exam_type = ['uts', 'uas'].includes(typeParam) ? typeParam : 'uts';
+    const dateParam = args[4];
+    const timeParam = args[5];
+
+    if (!dateParam || !timeParam || !/^\d{4}-\d{2}-\d{2}$/.test(dateParam)) {
+      await reply(
+        `❌ Format tanggal atau jam salah!\n\n` +
+        `*Gunakan Format:*\n` +
+        `\`!bot ujian tambah <uts/uas> <YYYY-MM-DD> <HH:mm>-<HH:mm> <matkul> | <ruang> | <catatan>\`\n\n` +
+        `*Contoh:*\n` +
+        `\`!bot ujian tambah uts 2026-11-23 08:00-10:00 Kalkulus | R. 401 | Buka buku, bawa kalkulator\``
+      );
+      return;
+    }
+
+    const [startTimeRaw, endTimeRaw] = timeParam.split('-');
+    const start_time = startTimeRaw.includes(':') ? (startTimeRaw.length === 5 ? `${startTimeRaw}:00` : startTimeRaw) : `${startTimeRaw}:00:00`;
+    const end_time = (endTimeRaw || startTimeRaw).includes(':') ? ((endTimeRaw || startTimeRaw).length === 5 ? `${endTimeRaw || startTimeRaw}:00` : (endTimeRaw || startTimeRaw)) : `${endTimeRaw || startTimeRaw}:00:00`;
+
+    const remainingText = args.slice(6).join(' ').trim();
+    const parts = remainingText.split('|').map(s => s.trim());
+    const course_name = parts[0] || 'Mata Kuliah';
+    const room = parts[1] || 'Sesuai info';
+    const notes = parts[2] || '';
+
+    const newId = await jadwalService.addExamSchedule({
+      exam_type,
+      exam_date: dateParam,
+      start_time,
+      end_time,
+      course_name,
+      room,
+      notes
+    });
+
+    const dateStr = formatter.formatDateIndo(new Date(dateParam));
+    await reply(
+      `✅ *JADWAL UJIAN BERHASIL DITAMBAHKAN!*\n\n` +
+      `[ID: ${newId}] *${course_name}* (${exam_type.toUpperCase()})\n` +
+      `🗓️ Tanggal : *${dateStr}*\n` +
+      `🕧 Waktu   : ${formatter.formatTime(start_time)} s.d ${formatter.formatTime(end_time)} WIB\n` +
+      `📍 Ruang   : ${room}\n` +
+      (notes ? `🎒 Catatan : ${notes}\n` : '') +
+      `\n💡 _Pengingat otomatis H-1 malam & 3 jam sebelum ujian akan dikirim ke grup._`
+    );
+    return;
+  }
+
+  // 4. Hapus Jadwal Ujian
+  if (action === 'hapus' || action === 'del' || action === 'delete') {
+    const targetId = parseInt(args[3], 10);
+    if (!targetId) {
+      await reply('❌ Masukkan ID jadwal ujian yang ingin dihapus.\nContoh: `!bot ujian hapus 1`\nKetik `!bot ujian` untuk melihat daftar ID.');
+      return;
+    }
+
+    const ex = await jadwalService.getExamById(targetId);
+    if (!ex) {
+      await reply(`❌ Jadwal ujian dengan ID ${targetId} tidak ditemukan.`);
+      return;
+    }
+
+    await jadwalService.deleteExamSchedule(targetId);
+    await reply(`✅ Jadwal ujian *${ex.course_name}* [ID: ${targetId}] berhasil dihapus.`);
+    return;
+  }
+
+  await reply('❌ Perintah tidak dikenal. Pilihan:\n`!bot ujian`\n`!bot ujian broadcast`\n`!bot ujian tambah ...`\n`!bot ujian hapus <id>`');
+}
+
 export async function handleKuliahCommand(rawText, args, messageInfo, reply, isAdmin = false, sock = null) {
   const action = (args[2] || '').toLowerCase();
 
@@ -874,7 +1240,15 @@ export async function handleCommand(sock, messageInfo, isAdmin = false) {
   try {
     const args = rawText.trim().split(/\s+/);
     const firstToken = (args[0] || '').toLowerCase();
-    const subCmd = firstToken === '!tampil' ? 'tampil' : (args[1] || '').toLowerCase();
+    let subCmd = firstToken === '!tampil' ? 'tampil' : (args[1] || '').toLowerCase();
+
+    // Toleransi typo / spasi: '!bor minggu tenang', '!bot minggu tenang', '!bot sweat-week'
+    if (firstToken === '!bor') {
+      subCmd = (args[1] || '').toLowerCase();
+    }
+    if ((subCmd === 'minggu' && (args[2] || '').toLowerCase() === 'tenang') || subCmd === 'minggutenang' || subCmd === 'sweat-week' || subCmd === 'sweatweek') {
+      subCmd = 'minggu-tenang';
+    }
 
     // Daftar perintah yang memerlukan otorisasi Admin
     const adminCommands = new Set([
@@ -889,8 +1263,10 @@ export async function handleCommand(sock, messageInfo, isAdmin = false) {
     const isKuliahAdmin = subCmd === 'kuliah' && ['batal', 'online', 'pindah', 'normal', 'reset', 'cancel', 'kosong', 'daring', 'zoom', 'ganti', 'reschedule'].includes((args[2] || '').toLowerCase());
     const isTugasAdmin = (subCmd === 'tugas' && args[2] && !['list'].includes(args[2].toLowerCase())) || (subCmd === 'jadwal' && (args[2] || '').toLowerCase() === 'tugas' && args[3] && !['list'].includes(args[3].toLowerCase()));
     const isSpinAdmin = ['spin', 'acak'].includes(subCmd);
+    const isMingguTenangAdmin = subCmd === 'minggu-tenang' && (args[2] || args[3]) && !['status', 'help'].includes(((args[1] === 'minggu' ? args[3] : args[2]) || '').toLowerCase());
+    const isUjianAdmin = ['ujian', 'uts', 'uas'].includes(subCmd) && ['tambah', 'add', 'hapus', 'del', 'broadcast', 'siar', 'umumkan'].includes((args[2] || '').toLowerCase());
 
-    const isRestricted = adminCommands.has(subCmd) || isKasAdmin || isMemberAdmin || isJadwalAdmin || isKuliahAdmin || isTugasAdmin || isSpinAdmin;
+    const isRestricted = adminCommands.has(subCmd) || isKasAdmin || isMemberAdmin || isJadwalAdmin || isKuliahAdmin || isTugasAdmin || isSpinAdmin || isMingguTenangAdmin || isUjianAdmin;
 
     if (isRestricted && !isAdmin) {
       await reply(
@@ -963,6 +1339,19 @@ export async function handleCommand(sock, messageInfo, isAdmin = false) {
   _Contoh: \`!bot spin 5 cewe: Ani, Bunga, Citra, Dewi\`_
 • \`!bot spin kelompok <jumlah>\` : Bagi rata seluruh mahasiswa ke N kelompok (Admin).
   _Contoh: \`!bot spin kelompok 4\`_
+
+*🗓️ MINGGU TENANG (SWEAT WEEK)*
+• \`!bot minggu-tenang\` : Panduan & kalender minggu tenang terdekat.
+• \`!bot minggu-tenang uts <matkul_masuk>\` : Aktifkan Minggu Tenang UTS (sisanya libur).
+• \`!bot minggu-tenang uts semua-libur\` : Liburkan seluruh perkuliahan 100%.
+• \`!bot minggu-tenang status\` : Cek rincian matkul libur vs tetap masuk.
+• \`!bot minggu-tenang reset\` : Kembalikan jadwal ke normal (Admin).
+
+*📋 JADWAL UJIAN (UTS / UAS)*
+• \`!bot ujian\` : Lihat daftar jadwal ujian aktif.
+• \`!bot ujian broadcast\` : Siarkan jadwal ujian lengkap ke grup (Admin).
+• \`!bot ujian tambah <uts/uas> <YYYY-MM-DD> <jam> <matkul> | <ruang> | <catatan>\` (Admin).
+• \`!bot ujian hapus <id>\` : Hapus jadwal ujian (Admin).
 
 🌐 _Anda juga dapat mengelola data lewat Web Dashboard._
 `.trim();
@@ -1789,6 +2178,19 @@ export async function handleCommand(sock, messageInfo, isAdmin = false) {
     case 'spin':
     case 'acak': {
       await handleSpinCommand(rawText, args, messageInfo, reply);
+      break;
+    }
+
+    case 'minggu-tenang':
+    case 'sweat-week': {
+      await handleMingguTenangCommand(rawText, args, messageInfo, reply, isAdmin, sock);
+      break;
+    }
+
+    case 'ujian':
+    case 'uts':
+    case 'uas': {
+      await handleUjianCommand(rawText, args, messageInfo, reply, isAdmin, sock);
       break;
     }
 

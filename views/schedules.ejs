@@ -1,4 +1,69 @@
-<%- include('layout/header', { pageTitle: 'Manajemen Jadwal Kuliah', pageDesc: 'Atur jadwal mata kuliah mingguan yang akan otomatis diingatkan H-5 Jam dan H-0' }) %>
+<%- include('layout/header', { pageTitle: 'Manajemen Jadwal Kuliah', pageDesc: 'Atur jadwal mata kuliah mingguan, minggu tenang, dan jadwal ujian UTS/UAS' }) %>
+
+<!-- Banner Periode Akademik & Minggu Tenang -->
+<div class="glass-card" style="margin-bottom: 24px; border-left: 4px solid <%= (sweatWeekConfig && sweatWeekConfig.isActive) ? '#f59e0b' : ((examPeriod && examPeriod.isExam) ? '#ef4444' : '#6366f1') %>;">
+  <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 16px;">
+    <div>
+      <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 6px;">
+        <% if (sweatWeekConfig && sweatWeekConfig.isActive) { %>
+          <span class="badge" style="background: rgba(245, 158, 11, 0.2); color: #fbbf24; font-weight: 700; border: 1px solid rgba(245, 158, 11, 0.4);">
+            🔥 MINGGU TENANG (<%= (sweatWeekConfig.type || 'uts').toUpperCase() %>) SEDANG AKTIF
+          </span>
+        <% } else if (examPeriod && examPeriod.isExam) { %>
+          <span class="badge" style="background: rgba(239, 68, 68, 0.2); color: #f87171; font-weight: 700; border: 1px solid rgba(239, 68, 68, 0.4);">
+            📝 MASA UJIAN (<%= (examPeriod.type || 'uts').toUpperCase() %>) BERLANGSUNG
+          </span>
+        <% } else { %>
+          <span class="badge" style="background: rgba(99, 102, 241, 0.2); color: #a5b4fc; font-weight: 700; border: 1px solid rgba(99, 102, 241, 0.4);">
+            🎓 KULIAH REGULER BERJALAN
+          </span>
+        <% } %>
+        <span style="font-size: 0.8rem; color: var(--text-dim);">Tahun Akademik <%= academicCalendar.academic_year %></span>
+      </div>
+      
+      <% if (sweatWeekConfig && sweatWeekConfig.isActive) { %>
+        <p style="font-size: 0.9rem; color: #fff; margin: 0;">
+          <strong>Periode:</strong> <%= formatter.formatDateIndo(new Date(sweatWeekConfig.startDate)) %> s.d <%= formatter.formatDateIndo(new Date(sweatWeekConfig.endDate)) %>
+        </p>
+        <p style="font-size: 0.82rem; color: var(--text-muted); margin-top: 4px;">
+          <% if (sweatWeekConfig.exceptions && sweatWeekConfig.exceptions.length > 0) { %>
+            Matkul tetap masuk: <span style="color: #6ee7b7; font-weight: 600;"><%= sweatWeekConfig.exceptions.join(', ') %></span> (Matkul lainnya libur & reminder dimatikan).
+          <% } else { %>
+            <span style="color: #fca5a5;">Seluruh perkuliahan 100% libur selama minggu tenang.</span>
+          <% } %>
+        </p>
+      <% } else if (examPeriod && examPeriod.isExam) { %>
+        <p style="font-size: 0.9rem; color: #fff; margin: 0;">
+          <strong>Periode Ujian:</strong> <%= formatter.formatDateIndo(new Date(examPeriod.start)) %> s.d <%= formatter.formatDateIndo(new Date(examPeriod.end)) %>
+        </p>
+        <p style="font-size: 0.82rem; color: #fca5a5; margin-top: 4px;">
+          Kuliah reguler dinonaktifkan. Pengingat hanya berjalan untuk jadwal ujian (H-1 jam 20:00 WIB & H-3 jam sebelum ujian).
+        </p>
+      <% } else { %>
+        <p style="font-size: 0.85rem; color: var(--text-muted); margin: 0;">
+          Minggu Tenang UTS berikutnya: <strong>16 – 21 Nov 2026</strong>. Anda dapat mengaktifkannya menjelang minggu tenang untuk mengatur perkuliahan yang libur atau tetap masuk.
+        </p>
+      <% } %>
+    </div>
+
+    <div style="display: flex; gap: 10px; flex-wrap: wrap;">
+      <% if (sweatWeekConfig && sweatWeekConfig.isActive) { %>
+        <form action="/schedules/sweat-week/reset" method="POST" onsubmit="return confirm('Kembalikan status kuliah ke normal (matikan mode minggu tenang)?');" style="margin: 0;">
+          <button type="submit" class="btn btn-secondary" style="border-color: rgba(239, 68, 68, 0.4); color: #f87171;">
+            🛑 Matikan Minggu Tenang
+          </button>
+        </form>
+        <button onclick="openModal('modalSweatWeek')" class="btn btn-secondary">
+          ✏️ Edit Pengecualian
+        </button>
+      <% } else { %>
+        <button onclick="openModal('modalSweatWeek')" class="btn btn-primary" style="background: linear-gradient(135deg, #f59e0b, #d97706); border: none;">
+          ⚡ Set Minggu Tenang (Sweat Week)
+        </button>
+      <% } %>
+    </div>
+  </div>
+</div>
 
 <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 16px;">
   <div>
@@ -167,6 +232,90 @@
                   </button>
                 </form>
               </div>
+            </td>
+          </tr>
+        <% }) %>
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<!-- Tabel Jadwal Ujian (UTS / UAS) -->
+<div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 16px; margin-top: 36px;">
+  <div>
+    <h2 style="font-size: 1.2rem; font-weight: 700;">Jadwal Ujian (UTS / UAS)</h2>
+    <p style="font-size: 0.85rem; color: var(--text-muted);">
+      Jadwal ujian resmi kelas. Bot otomatis mengirimkan pengingat H-1 Malam (20:00 WIB) dan 3 Jam sebelum jadwal ujian.
+    </p>
+  </div>
+  <div style="display: flex; gap: 10px; flex-wrap: wrap;">
+    <button onclick="openModal('modalBroadcastExam')" class="btn btn-secondary">
+      📢 Siarkan Jadwal ke Grup WA
+    </button>
+    <button onclick="openModal('modalAddExam')" class="btn btn-primary">
+      ➕ Tambah Jadwal Ujian
+    </button>
+  </div>
+</div>
+
+<div class="glass-card">
+  <div class="table-responsive">
+    <table>
+      <thead>
+        <tr>
+          <th>Tipe</th>
+          <th>Tanggal & Hari</th>
+          <th>Jam Ujian</th>
+          <th>Mata Kuliah</th>
+          <th>Ruang / Lokasi</th>
+          <th>Sifat Ujian</th>
+          <th>Catatan / Bawaan</th>
+          <th style="text-align: right;">Aksi</th>
+        </tr>
+      </thead>
+      <tbody>
+        <% if (!examSchedules || examSchedules.length === 0) { %>
+          <tr>
+            <td colspan="8" style="text-align: center; padding: 36px; color: var(--text-dim);">
+              Belum ada jadwal ujian yang ditambahkan. Klik tombol "Tambah Jadwal Ujian" untuk mengisi jadwal UTS/UAS resmi.
+            </td>
+          </tr>
+        <% } %>
+        <% (examSchedules || []).forEach(ex => { %>
+          <tr>
+            <td>
+              <span class="badge" style="background: <%= ex.exam_type === 'uas' ? 'rgba(239, 68, 68, 0.2)' : 'rgba(245, 158, 11, 0.2)' %>; color: <%= ex.exam_type === 'uas' ? '#fca5a5' : '#fbbf24' %>; font-weight: 700; text-transform: uppercase;">
+                <%= ex.exam_type %>
+              </span>
+            </td>
+            <td>
+              <strong><%= formatter.formatDateIndo(new Date(ex.exam_date)) %></strong>
+            </td>
+            <td>
+              <strong><%= formatter.formatTime(ex.start_time) %> - <%= formatter.formatTime(ex.end_time) %> WIB</strong>
+            </td>
+            <td>
+              <strong style="color: #fff; font-size: 0.95rem;"><%= ex.course_name %></strong>
+            </td>
+            <td><%= ex.room %></td>
+            <td>
+              <span class="badge" style="background: rgba(99, 102, 241, 0.15); color: #a5b4fc;">
+                <%= ex.exam_format || 'Tatap Muka' %>
+              </span>
+            </td>
+            <td>
+              <% if (ex.notes) { %>
+                <span style="color: #fde047; font-size: 0.85rem;"><%= ex.notes %></span>
+              <% } else { %>
+                <span style="color: var(--text-dim);">-</span>
+              <% } %>
+            </td>
+            <td style="text-align: right;">
+              <form action="/schedules/exams/delete/<%= ex.id %>" method="POST" onsubmit="return confirm('Hapus jadwal ujian <%= ex.course_name %>?');" style="display: inline;">
+                <button type="submit" class="btn btn-danger btn-sm" title="Hapus">
+                  🗑️
+                </button>
+              </form>
             </td>
           </tr>
         <% }) %>
@@ -494,5 +643,190 @@
     </form>
   </div>
 </div>
+
+<!-- Modal Atur Minggu Tenang (Sweat Week) -->
+<div class="modal-overlay" id="modalSweatWeek">
+  <div class="modal-content" style="max-width: 600px;">
+    <div class="card-header">
+      <h3 class="card-title">⚡ Pengaturan Minggu Tenang (Sweat Week)</h3>
+      <button onclick="closeModal('modalSweatWeek')" style="background: none; border: none; color: var(--text-muted); cursor: pointer; font-size: 1.2rem;">✕</button>
+    </div>
+    <form action="/schedules/sweat-week/set" method="POST">
+      <div class="form-group">
+        <label for="selectSweatType">Menjelang Ujian</label>
+        <select id="selectSweatType" name="exam_type" onchange="updateSweatDates(this.value)" style="width: 100%; border-radius: var(--radius-sm); padding: 10px; background: rgba(0,0,0,0.3); border: 1px solid var(--border-color); color: #fff;">
+          <option value="uts" <%= (sweatWeekConfig && sweatWeekConfig.type === 'uts') ? 'selected' : '' %>>Ujian Tengah Semester (UTS) — 16 s.d 21 Nov 2026</option>
+          <option value="uas" <%= (sweatWeekConfig && sweatWeekConfig.type === 'uas') ? 'selected' : '' %>>Ujian Akhir Semester (UAS) — 25 s.d 30 Jan 2027</option>
+        </select>
+      </div>
+
+      <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px;">
+        <div class="form-group">
+          <label for="inputSweatStart">Tanggal Mulai (Senin)</label>
+          <input type="date" id="inputSweatStart" name="start_date" value="<%= (sweatWeekConfig && sweatWeekConfig.startDate) || '2026-11-16' %>" required style="width: 100%; border-radius: var(--radius-sm); padding: 10px; background: rgba(0,0,0,0.3); border: 1px solid var(--border-color); color: #fff;">
+        </div>
+        <div class="form-group">
+          <label for="inputSweatEnd">Tanggal Selesai (Sabtu)</label>
+          <input type="date" id="inputSweatEnd" name="end_date" value="<%= (sweatWeekConfig && sweatWeekConfig.endDate) || '2026-11-21' %>" required style="width: 100%; border-radius: var(--radius-sm); padding: 10px; background: rgba(0,0,0,0.3); border: 1px solid var(--border-color); color: #fff;">
+        </div>
+      </div>
+
+      <div class="form-group" style="margin-top: 10px;">
+        <label style="font-weight: 700; color: #fff;">Mata Kuliah yang TETAP MASUK / KULIAH PENGGANTI:</label>
+        <p style="font-size: 0.8rem; color: var(--text-muted); margin-bottom: 8px;">
+          Centang matkul yang tetap masuk selama minggu tenang. Matkul yang TIDAK dicentang akan otomatis diliburkan dan reminder-nya dimatikan.
+        </p>
+        <div style="max-height: 180px; overflow-y: auto; background: rgba(0,0,0,0.25); border: 1px solid var(--border-color); border-radius: var(--radius-sm); padding: 10px;">
+          <% 
+            const existingExceptions = (sweatWeekConfig && sweatWeekConfig.exceptions) || [];
+            const uniqueCourses = [...new Set(schedules.map(s => s.course_name))];
+          %>
+          <% if (uniqueCourses.length === 0) { %>
+            <div style="font-size: 0.82rem; color: var(--text-dim); text-align: center; padding: 10px;">Belum ada mata kuliah reguler terdaftar.</div>
+          <% } %>
+          <% uniqueCourses.forEach(cName => { %>
+            <label style="display: flex; align-items: center; gap: 8px; padding: 5px 4px; cursor: pointer; border-bottom: 1px solid rgba(255,255,255,0.05); margin: 0;">
+              <input type="checkbox" name="exceptions" value="<%= cName %>" <%= existingExceptions.some(e => e.toLowerCase() === cName.toLowerCase()) ? 'checked' : '' %> style="width: 16px; height: 16px;">
+              <span style="font-size: 0.88rem; color: #fff;"><%= cName %></span>
+            </label>
+          <% }) %>
+        </div>
+      </div>
+
+      <div class="form-group">
+        <label for="inputSweatNote">Catatan Khusus (Opsional)</label>
+        <input type="text" id="inputSweatNote" name="exception_notes" value="<%= (sweatWeekConfig && sweatWeekConfig.exceptionNotes) || '' %>" placeholder="Contoh: Manfaatkan waktu minggu tenang untuk belajar maksimal!" style="width: 100%; border-radius: var(--radius-sm); padding: 10px; background: rgba(0,0,0,0.3); border: 1px solid var(--border-color); color: #fff;">
+      </div>
+
+      <div class="form-group" style="background: rgba(0,0,0,0.2); padding: 10px 12px; border-radius: 6px; border: 1px solid var(--border-color);">
+        <label style="display: flex; align-items: center; gap: 8px; cursor: pointer; margin-bottom: 0;">
+          <input type="checkbox" name="broadcast_announcement" checked value="on" style="cursor: pointer; width: 16px; height: 16px;">
+          <span style="font-size: 0.85rem; color: #fff;">📢 Kirim siaran pengumuman Minggu Tenang langsung ke Grup WhatsApp</span>
+        </label>
+      </div>
+
+      <div style="display: flex; justify-content: flex-end; gap: 10px; margin-top: 20px;">
+        <button type="button" onclick="closeModal('modalSweatWeek')" class="btn btn-secondary">Batal</button>
+        <button type="submit" class="btn btn-primary">Aktifkan Minggu Tenang</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- Modal Tambah Jadwal Ujian -->
+<div class="modal-overlay" id="modalAddExam">
+  <div class="modal-content" style="max-width: 550px;">
+    <div class="card-header">
+      <h3 class="card-title">➕ Tambah Jadwal Ujian (UTS / UAS)</h3>
+      <button onclick="closeModal('modalAddExam')" style="background: none; border: none; color: var(--text-muted); cursor: pointer; font-size: 1.2rem;">✕</button>
+    </div>
+    <form action="/schedules/exams/add" method="POST">
+      <div style="display: grid; grid-template-columns: 1fr 2fr; gap: 12px;">
+        <div class="form-group">
+          <label for="selectExamType">Tipe Ujian</label>
+          <select id="selectExamType" name="exam_type" required style="width: 100%; border-radius: var(--radius-sm); padding: 10px; background: rgba(0,0,0,0.3); border: 1px solid var(--border-color); color: #fff;">
+            <option value="uts">UTS</option>
+            <option value="uas">UAS</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label for="inputExamDate">Tanggal Ujian</label>
+          <input type="date" id="inputExamDate" name="exam_date" required style="width: 100%; border-radius: var(--radius-sm); padding: 10px; background: rgba(0,0,0,0.3); border: 1px solid var(--border-color); color: #fff;">
+        </div>
+      </div>
+
+      <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px;">
+        <div class="form-group">
+          <label for="inputExamStartTime">Jam Mulai</label>
+          <input type="time" id="inputExamStartTime" name="start_time" required style="width: 100%; border-radius: var(--radius-sm); padding: 10px; background: rgba(0,0,0,0.3); border: 1px solid var(--border-color); color: #fff;">
+        </div>
+        <div class="form-group">
+          <label for="inputExamEndTime">Jam Selesai</label>
+          <input type="time" id="inputExamEndTime" name="end_time" required style="width: 100%; border-radius: var(--radius-sm); padding: 10px; background: rgba(0,0,0,0.3); border: 1px solid var(--border-color); color: #fff;">
+        </div>
+      </div>
+
+      <div class="form-group">
+        <label for="inputExamCourse">Mata Kuliah</label>
+        <input type="text" id="inputExamCourse" name="course_name" list="courseList" placeholder="Contoh: Kalkulus 1" required style="width: 100%; border-radius: var(--radius-sm); padding: 10px; background: rgba(0,0,0,0.3); border: 1px solid var(--border-color); color: #fff;">
+        <datalist id="courseList">
+          <% [...new Set(schedules.map(s => s.course_name))].forEach(cn => { %>
+            <option value="<%= cn %>">
+          <% }) %>
+        </datalist>
+      </div>
+
+      <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px;">
+        <div class="form-group">
+          <label for="inputExamRoom">Ruangan / Lab</label>
+          <input type="text" id="inputExamRoom" name="room" placeholder="Contoh: R. 401 / Lab Komputer" required style="width: 100%; border-radius: var(--radius-sm); padding: 10px; background: rgba(0,0,0,0.3); border: 1px solid var(--border-color); color: #fff;">
+        </div>
+        <div class="form-group">
+          <label for="selectExamFormat">Sifat Ujian</label>
+          <select id="selectExamFormat" name="exam_format" style="width: 100%; border-radius: var(--radius-sm); padding: 10px; background: rgba(0,0,0,0.3); border: 1px solid var(--border-color); color: #fff;">
+            <option value="Tutup Buku">Tutup Buku</option>
+            <option value="Buka Buku">Buka Buku</option>
+            <option value="Praktikum di Lab">Praktikum di Lab</option>
+            <option value="Proyek / Tugas Besar">Proyek / Tugas Besar</option>
+            <option value="Online LMS">Online LMS</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="form-group">
+        <label for="inputExamNotes">Catatan / Barang Bawaan Khusus</label>
+        <input type="text" id="inputExamNotes" name="notes" placeholder="Contoh: Wajib bawa Kartu Ujian, pensil 2B, kalkulator" style="width: 100%; border-radius: var(--radius-sm); padding: 10px; background: rgba(0,0,0,0.3); border: 1px solid var(--border-color); color: #fff;">
+      </div>
+
+      <div style="display: flex; justify-content: flex-end; gap: 10px; margin-top: 20px;">
+        <button type="button" onclick="closeModal('modalAddExam')" class="btn btn-secondary">Batal</button>
+        <button type="submit" class="btn btn-primary">Simpan Jadwal Ujian</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- Modal Broadcast Jadwal Ujian -->
+<div class="modal-overlay" id="modalBroadcastExam">
+  <div class="modal-content" style="max-width: 500px;">
+    <div class="card-header">
+      <h3 class="card-title">📢 Siarkan Jadwal Ujian ke Grup WA</h3>
+      <button onclick="closeModal('modalBroadcastExam')" style="background: none; border: none; color: var(--text-muted); cursor: pointer; font-size: 1.2rem;">✕</button>
+    </div>
+    <form action="/schedules/exams/broadcast" method="POST">
+      <div class="form-group">
+        <label for="broadcastExamType">Pilih Ujian yang Ingin Disiarkan</label>
+        <select id="broadcastExamType" name="exam_type" style="width: 100%; border-radius: var(--radius-sm); padding: 10px; background: rgba(0,0,0,0.3); border: 1px solid var(--border-color); color: #fff;">
+          <option value="uts">Ujian Tengah Semester (UTS)</option>
+          <option value="uas">Ujian Akhir Semester (UAS)</option>
+          <option value="">Seluruh Ujian yang Terdaftar</option>
+        </select>
+      </div>
+      <p style="font-size: 0.85rem; color: var(--text-muted);">
+        Pesan broadcast akan mencakup seluruh mata kuliah ujian, tanggal, jam, ruangan, sifat ujian, dan perlengkapan yang wajib dibawa mahasiswa ke grup WhatsApp utama kelas.
+      </p>
+      <div style="display: flex; justify-content: flex-end; gap: 10px; margin-top: 20px;">
+        <button type="button" onclick="closeModal('modalBroadcastExam')" class="btn btn-secondary">Batal</button>
+        <button type="submit" class="btn btn-primary" style="background: linear-gradient(135deg, #10b981, #059669); border: none;">
+          🚀 Kirim Broadcast Sekarang
+        </button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<script>
+  function updateSweatDates(type) {
+    const startInput = document.getElementById('inputSweatStart');
+    const endInput = document.getElementById('inputSweatEnd');
+    if (type === 'uts') {
+      startInput.value = '2026-11-16';
+      endInput.value = '2026-11-21';
+    } else if (type === 'uas') {
+      startInput.value = '2027-01-25';
+      endInput.value = '2027-01-30';
+    }
+  }
+</script>
 
 <%- include('layout/footer') %>

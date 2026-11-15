@@ -634,18 +634,188 @@ router.post('/members/pay-iuran', requireAuth, async (req, res) => {
 });
 
 // -------------------------------------------------------------
-// 4. MANAJEMEN JADWAL KULIAH (SCHEDULES)
+// 4. MANAJEMEN JADWAL KULIAH (SCHEDULES) & UJIAN
 // -------------------------------------------------------------
 router.get('/schedules', requireAuth, async (req, res) => {
   try {
     const schedules = await jadwalService.getAllSchedules();
+    const sweatWeekConfig = await jadwalService.getSweatWeekConfig();
+    const examSchedules = await jadwalService.getExamSchedules();
+    const academicCalendar = jadwalService.ACADEMIC_CALENDAR;
+    const examPeriod = jadwalService.getExamPeriod();
+
     res.render('schedules', {
       user: req.session.user,
       schedules,
+      sweatWeekConfig,
+      examSchedules,
+      academicCalendar,
+      examPeriod,
       formatter
     });
   } catch (err) {
     res.status(500).send('Error: ' + err.message);
+  }
+});
+
+router.post('/schedules/sweat-week/set', requireAuth, async (req, res) => {
+  try {
+    const { exam_type, start_date, end_date, exceptions, exception_notes, broadcast_announcement } = req.body;
+    let excList = [];
+    if (exceptions) {
+      excList = Array.isArray(exceptions) ? exceptions : [exceptions];
+    }
+
+    const cfg = await jadwalService.setSweatWeekConfig({
+      type: exam_type || 'uts',
+      startDate: start_date,
+      endDate: end_date,
+      exceptions: excList,
+      note: exception_notes
+    });
+
+    if (broadcast_announcement) {
+      const targetGroupJid = await messageService.getSetting('target_group_jid');
+      if (targetGroupJid) {
+        const typeUpper = (cfg.type || 'uts').toUpperCase();
+        const startStr = formatter.formatDateIndo(new Date(cfg.startDate));
+        const endStr = formatter.formatDateIndo(new Date(cfg.endDate));
+        const exams = await jadwalService.getExamSchedules(cfg.type, true);
+
+        let annText =
+          `📢 *PENGUMUMAN MINGGU TENANG (SWEAT WEEK) SEBELUM ${typeUpper}* 📢\n\n` +
+          `Diberitahukan kepada seluruh rekan kelas bahwa perkuliahan memasuki masa Minggu Tenang:\n` +
+          `🗓️ *Periode:* ${startStr} s.d ${endStr}\n\n` +
+          `📌 *STATUS PERKULIAHAN:*\n\n`;
+
+        if (excList.length > 0) {
+          annText += `✅ *KULIAH TETAP MASUK / PENGGANTI:*\n`;
+          const allSchedules = await jadwalService.getAllSchedules(true);
+          excList.forEach((exName, idx) => {
+            const found = allSchedules.find(s => s.course_name.toLowerCase().includes(exName.toLowerCase()) || exName.toLowerCase().includes(s.course_name.toLowerCase()));
+            if (found) {
+              const jam = `${formatter.formatTime(found.start_time)} - ${formatter.formatTime(found.end_time)}`;
+              annText += `${idx + 1}. *${found.course_name}* (${found.day_of_week.toUpperCase()}, ${jam} WIB | ${found.note || 'Sesuai info'})\n`;
+              annText += `   👩‍🏫 Dosen: ${found.lecturer}\n`;
+            } else {
+              annText += `${idx + 1}. *${exName}*\n`;
+            }
+          });
+          annText += `\n❌ *PERKULIAHAN LAINNYA DILIBURKAN:*\n• Seluruh mata kuliah selain yang tercantum di atas diliburkan untuk persiapan ujian.\n\n`;
+        } else {
+          annText += `✅ *SELURUH PERKULIAHAN DILIBURKAN:*\n• Seluruh mata kuliah 100% libur untuk persiapan menghadapi ujian.\n\n`;
+        }
+
+        if (exams.length > 0) {
+          annText += `📋 *JADWAL PELAKSANAAN ${typeUpper}:*\n`;
+          exams.forEach((ex, idx) => {
+            const dateStr = formatter.formatDateIndo(new Date(ex.exam_date));
+            const jam = `${formatter.formatTime(ex.start_time)} s.d ${formatter.formatTime(ex.end_time)}`;
+            annText += `${idx + 1}. *${ex.course_name}*\n`;
+            annText += `   🗓️ ${dateStr} | 🕧 ${jam} WIB\n`;
+            annText += `   📍 Ruang: ${ex.room} | 📝 Sifat: ${ex.exam_format || 'Tatap Muka'}\n`;
+            if (ex.notes) annText += `   🎒 Catatan: ${ex.notes}\n`;
+          });
+          annText += `\n`;
+        } else {
+          annText += `ℹ️ *Catatan Jadwal Ujian:*\nJadwal resmi pelaksanaan ${typeUpper} akan diumumkan menyusul setelah rilis resmi dari fakultas.\n\n`;
+        }
+
+        annText += `🎯 _Manfaatkan waktu minggu tenang ini untuk belajar dan mempersiapkan ${typeUpper} dengan maksimal. Semangat dan sukses selalu!_ 🚀`;
+
+        try {
+          await sendGroupNotification(targetGroupJid, annText, true);
+        } catch (e) {
+          console.warn('[WEB] Gagal kirim broadcast Minggu Tenang:', e.message);
+        }
+      }
+    }
+
+    res.redirect('/schedules?success=' + encodeURIComponent('Pengaturan Minggu Tenang berhasil disimpan!'));
+  } catch (err) {
+    res.redirect('/schedules?error=' + encodeURIComponent(err.message));
+  }
+});
+
+router.post('/schedules/sweat-week/reset', requireAuth, async (req, res) => {
+  try {
+    await jadwalService.resetSweatWeekConfig();
+    res.redirect('/schedules?success=' + encodeURIComponent('Mode Minggu Tenang dinonaktifkan. Jadwal kuliah kembali normal!'));
+  } catch (err) {
+    res.redirect('/schedules?error=' + encodeURIComponent(err.message));
+  }
+});
+
+router.post('/schedules/exams/add', requireAuth, async (req, res) => {
+  try {
+    const { exam_type, course_name, exam_date, start_time, end_time, room, exam_format, notes } = req.body;
+    await jadwalService.addExamSchedule({
+      exam_type: exam_type || 'uts',
+      course_name,
+      exam_date,
+      start_time: start_time.length === 5 ? `${start_time}:00` : start_time,
+      end_time: end_time.length === 5 ? `${end_time}:00` : end_time,
+      room,
+      exam_format,
+      notes
+    });
+    res.redirect('/schedules?success=' + encodeURIComponent('Jadwal ujian berhasil ditambahkan!'));
+  } catch (err) {
+    res.redirect('/schedules?error=' + encodeURIComponent(err.message));
+  }
+});
+
+router.post('/schedules/exams/delete/:id', requireAuth, async (req, res) => {
+  try {
+    await jadwalService.deleteExamSchedule(req.params.id);
+    res.redirect('/schedules?success=' + encodeURIComponent('Jadwal ujian berhasil dihapus!'));
+  } catch (err) {
+    res.redirect('/schedules?error=' + encodeURIComponent(err.message));
+  }
+});
+
+router.post('/schedules/exams/broadcast', requireAuth, async (req, res) => {
+  try {
+    const { exam_type } = req.body;
+    const typeParam = ['uts', 'uas'].includes(exam_type) ? exam_type : null;
+    const exams = await jadwalService.getExamSchedules(typeParam, true);
+
+    if (exams.length === 0) {
+      return res.redirect('/schedules?error=' + encodeURIComponent('Tidak ada jadwal ujian untuk disiarkan.'));
+    }
+
+    const typeTitle = typeParam ? typeParam.toUpperCase() : 'UTS / UAS';
+    let ann =
+      `📢 *PENGUMUMAN JADWAL RESMI ${typeTitle}* 📢\n\n` +
+      `Diberitahukan kepada seluruh rekan kelas, berikut adalah jadwal pelaksanaan ujian:\n\n`;
+
+    exams.forEach((ex, idx) => {
+      const dateStr = formatter.formatDateIndo(new Date(ex.exam_date));
+      const jam = `${formatter.formatTime(ex.start_time)} s.d ${formatter.formatTime(ex.end_time)}`;
+      ann += `${idx + 1}. *${ex.course_name}* [${(ex.exam_type || 'uts').toUpperCase()}]\n`;
+      ann += `   🗓️ *${dateStr}*\n`;
+      ann += `   🕧 Waktu : ${jam} WIB\n`;
+      ann += `   📍 Ruang : *${ex.room}*\n`;
+      ann += `   📝 Sifat : ${ex.exam_format || 'Tatap Muka'}\n`;
+      if (ex.notes) ann += `   🎒 Catatan: ${ex.notes}\n`;
+      ann += `\n`;
+    });
+
+    ann +=
+      `⚠️ *TATA TERTIB & PERSIAPAN:*\n` +
+      `1. Wajib membawa Kartu Peserta Ujian (KPU) dan KTM.\n` +
+      `2. Berpakaian rapi dan hadir minimal 15 menit sebelum ujian dimulai.\n` +
+      `3. Bot akan mengirimkan pengingat H-1 (Pukul 20:00 WIB) dan 3 jam sebelum jadwal ujian.\n\n` +
+      `_Selamat menempuh ujian, junjung tinggi kejujuran dan semoga sukses!_ 🌟`;
+
+    const targetGroupJid = await messageService.getSetting('target_group_jid');
+    if (targetGroupJid) {
+      await sendGroupNotification(targetGroupJid, ann, true);
+    }
+
+    res.redirect('/schedules?success=' + encodeURIComponent(`Jadwal resmi ${typeTitle} berhasil disiarkan ke grup WhatsApp!`));
+  } catch (err) {
+    res.redirect('/schedules?error=' + encodeURIComponent(err.message));
   }
 });
 

@@ -119,6 +119,35 @@ CREATE TABLE IF NOT EXISTS `spin_history` (
   INDEX `idx_created_at` (`created_at`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
+-- 10. Tabel Exam Schedules (Jadwal Ujian UTS / UAS)
+CREATE TABLE IF NOT EXISTS `exam_schedules` (
+  `id` INT AUTO_INCREMENT PRIMARY KEY,
+  `exam_type` ENUM('uts', 'uas') NOT NULL,
+  `semester` INT NOT NULL DEFAULT 1,
+  `academic_year` VARCHAR(20) NOT NULL DEFAULT '2026/2027',
+  `course_name` VARCHAR(150) NOT NULL,
+  `exam_date` DATE NOT NULL,
+  `start_time` TIME NOT NULL,
+  `end_time` TIME NOT NULL,
+  `room` VARCHAR(100) NOT NULL DEFAULT 'Sesuai info',
+  `exam_format` VARCHAR(100) NOT NULL DEFAULT 'Tatap Muka',
+  `notes` TEXT NULL,
+  `is_active` BOOLEAN DEFAULT TRUE,
+  `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  INDEX `idx_exam_date` (`exam_date`, `start_time`),
+  INDEX `idx_exam_type` (`exam_type`, `is_active`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- 11. Tabel Exam Reminder Logs (Mencegah Notifikasi Ujian Ganda)
+CREATE TABLE IF NOT EXISTS `exam_reminder_logs` (
+  `id` INT AUTO_INCREMENT PRIMARY KEY,
+  `exam_id` INT NOT NULL,
+  `reminder_type` VARCHAR(50) NOT NULL,
+  `reminder_date` DATE NOT NULL,
+  `sent_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  UNIQUE KEY `unique_exam_reminder` (`exam_id`, `reminder_type`, `reminder_date`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
 -- ==========================================================
 -- Data Default Awal (Seed Data)
 -- ==========================================================
