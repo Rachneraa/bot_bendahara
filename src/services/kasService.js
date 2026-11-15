@@ -851,13 +851,13 @@ export async function correctMemberIuran({ member_id, new_amount, month = null, 
   const targetYear = year ? parseInt(year, 10) : (activePeriod.year || new Date().getFullYear());
   const mName = MONTH_NAMES[targetMonth] || `Bulan ${targetMonth}`;
 
-  // Ambil transaksi kas masuk terkait mahasiswa ini pada bulan & tahun tersebut
-  const [tx] = await query(`
+  // Ambil SEMUA transaksi kas masuk terkait mahasiswa ini pada bulan & tahun tersebut
+  const txs = await query(`
     SELECT id, amount 
     FROM kas_transactions 
     WHERE member_id = ? AND type = 'masuk' 
       AND (description LIKE ? OR (created_at >= ? AND created_at < ?))
-    ORDER BY id DESC LIMIT 1
+    ORDER BY id ASC
   `, [
     member_id, 
     `%Bulan ${mName} (${targetYear})%`,
@@ -867,11 +867,11 @@ export async function correctMemberIuran({ member_id, new_amount, month = null, 
       : `${targetYear}-${String(targetMonth + 1).padStart(2, '0')}-01 00:00:00`
   ]);
 
-  const currentPaid = tx ? Number(tx.amount || 0) : 0;
+  const currentPaid = txs.reduce((sum, r) => sum + Number(r.amount || 0), 0);
   const targetNewAmount = Math.max(0, parseInt(new_amount, 10) || 0);
   const target = await getKasTarget();
 
-  if (currentPaid === targetNewAmount) {
+  if (currentPaid === targetNewAmount && txs.length <= 1) {
     return {
       unchanged: true,
       member,
@@ -886,12 +886,24 @@ export async function correctMemberIuran({ member_id, new_amount, month = null, 
   }
 
   const diff = targetNewAmount - currentPaid;
+
   if (targetNewAmount === 0) {
-    if (tx) {
-      await query('DELETE FROM kas_transactions WHERE id = ?', [tx.id]);
+    if (txs.length > 0) {
+      const ids = txs.map(t => t.id);
+      await query(`DELETE FROM kas_transactions WHERE id IN (${ids.map(() => '?').join(',')})`, ids);
     }
-  } else if (tx) {
-    await query('UPDATE kas_transactions SET amount = ? WHERE id = ?', [targetNewAmount, tx.id]);
+  } else if (txs.length > 0) {
+    const [primaryTx, ...duplicates] = txs;
+    await query(`
+      UPDATE kas_transactions 
+      SET amount = ?, description = ? 
+      WHERE id = ?
+    `, [targetNewAmount, `Iuran Kas Bulan ${mName} (${targetYear}) - ${member.name}`, primaryTx.id]);
+
+    if (duplicates.length > 0) {
+      const dupIds = duplicates.map(t => t.id);
+      await query(`DELETE FROM kas_transactions WHERE id IN (${dupIds.map(() => '?').join(',')})`, dupIds);
+    }
   } else {
     await addTransaction({
       type: 'masuk',
