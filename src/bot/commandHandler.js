@@ -661,6 +661,8 @@ export async function handleMingguTenangCommand(rawText, args, messageInfo, repl
       `  _Aktifkan Minggu Tenang UTS. Matkul yang disebut tetap masuk/pengganti, sisanya libur & reminder dimatikan._\n` +
       `• \`!bot minggu-tenang uts semua-libur\`\n` +
       `  _Seluruh matkul 100% libur selama minggu tenang._\n` +
+      `• \`!bot minggu-tenang broadcast\`\n` +
+      `  _Siarkan pengumuman Minggu Tenang aktif ke grup kelas._\n` +
       `• \`!bot minggu-tenang status\`\n` +
       `  _Cek status aktif minggu tenang & daftar matkul libur/masuk._\n` +
       `• \`!bot minggu-tenang reset\`\n` +
@@ -716,7 +718,66 @@ export async function handleMingguTenangCommand(rawText, args, messageInfo, repl
     return;
   }
 
-  // 4. Aktivasi UTS atau UAS
+  // 4. Broadcast pengumuman aktif ke grup
+  if (action === 'broadcast' || action === 'siar' || action === 'umumkan') {
+    const cfg = await jadwalService.getSweatWeekConfig();
+    if (!cfg.isActive) {
+      await reply('⚠️ *Minggu Tenang belum diaktifkan!*\nAktifkan terlebih dahulu dengan: `!bot minggu-tenang uts <matkul_masuk>` atau via web dashboard.');
+      return;
+    }
+
+    const typeUpper = (cfg.type || 'uts').toUpperCase();
+    const startStr = formatter.formatDateIndo(new Date(cfg.startDate));
+    const endStr = formatter.formatDateIndo(new Date(cfg.endDate));
+    const exams = await jadwalService.getExamSchedules(cfg.type, true);
+    const exceptions = cfg.exceptions || [];
+
+    let annText =
+      `📢 *PENGUMUMAN MINGGU TENANG (SWEAT WEEK) SEBELUM ${typeUpper}* 📢\n\n` +
+      `Diberitahukan kepada seluruh rekan kelas bahwa perkuliahan memasuki masa Minggu Tenang:\n` +
+      `🗓️ *Periode:* ${startStr} s.d ${endStr}\n\n` +
+      `📌 *STATUS PERKULIAHAN:*\n\n`;
+
+    if (exceptions.length > 0) {
+      annText += `✅ *KULIAH TETAP MASUK / PENGGANTI:*\n`;
+      const allSchedules = await jadwalService.getAllSchedules(true);
+      exceptions.forEach((exName, idx) => {
+        const found = allSchedules.find(s => s.course_name.toLowerCase().includes(exName.toLowerCase()) || exName.toLowerCase().includes(s.course_name.toLowerCase()));
+        if (found) {
+          const jam = `${formatter.formatTime(found.start_time)} - ${formatter.formatTime(found.end_time)}`;
+          annText += `${idx + 1}. *${found.course_name}* (${found.day_of_week.toUpperCase()}, ${jam} WIB | ${found.note || 'Sesuai info'})\n`;
+          annText += `   👩‍🏫 Dosen: ${found.lecturer}\n`;
+        } else {
+          annText += `${idx + 1}. *${exName}*\n`;
+        }
+      });
+      annText += `\n❌ *PERKULIAHAN LAINNYA DILIBURKAN:*\n• Seluruh mata kuliah selain yang tercantum di atas diliburkan untuk persiapan ujian.\n\n`;
+    } else {
+      annText += `✅ *SELURUH PERKULIAHAN DILIBURKAN:*\n• Seluruh mata kuliah 100% libur untuk persiapan menghadapi ujian.\n\n`;
+    }
+
+    if (exams.length > 0) {
+      annText += `📋 *JADWAL PELAKSANAAN ${typeUpper}:*\n`;
+      exams.forEach((ex, idx) => {
+        const dateStr = formatter.formatDateIndo(new Date(ex.exam_date));
+        const jam = `${formatter.formatTime(ex.start_time)} s.d ${formatter.formatTime(ex.end_time)}`;
+        annText += `${idx + 1}. *${ex.course_name}*\n`;
+        annText += `   🗓️ ${dateStr} | 🕧 ${jam} WIB\n`;
+        annText += `   📍 Ruang: ${ex.room} | 📝 Sifat: ${ex.exam_format || 'Tatap Muka'}\n`;
+        if (ex.notes) annText += `   🎒 Catatan: ${ex.notes}\n`;
+      });
+      annText += `\n`;
+    } else {
+      annText += `ℹ️ *Catatan Jadwal Ujian:*\nJadwal resmi pelaksanaan ${typeUpper} akan diumumkan menyusul setelah rilis resmi dari fakultas.\n\n`;
+    }
+
+    annText += `🎯 _Manfaatkan waktu minggu tenang ini untuk belajar dan mempersiapkan ${typeUpper} dengan maksimal. Semangat dan sukses selalu!_ 🚀`;
+
+    await broadcastAnnouncement(sock, messageInfo, annText, reply);
+    return;
+  }
+
+  // 5. Aktivasi UTS atau UAS
   if (action === 'uts' || action === 'uas') {
     const type = action;
     const typeUpper = type.toUpperCase();
@@ -1226,6 +1287,143 @@ export async function handleKuliahCommand(rawText, args, messageInfo, reply, isA
   );
 }
 
+export async function runNotificationTest(sock, messageInfo, reply) {
+  const { isGroup, groupJid } = messageInfo;
+  const targetGroupJid = await messageService.getSetting('target_group_jid', '');
+  const testGroupJid = await messageService.getSetting('test_group_jid', '');
+
+  // 1. Ambil config Minggu Tenang & Jadwal
+  const sweatWeek = await jadwalService.getSweatWeekConfig();
+  const allSchedules = await jadwalService.getAllSchedules(true);
+  const todaySchedules = await jadwalService.getTodaySchedules();
+  const exams = await jadwalService.getExamSchedules(sweatWeek.type || 'uts', true);
+
+  // Cari matkul contoh untuk simulasi H-3 jam
+  let sampleSchedule = null;
+  if (sweatWeek.isActive && sweatWeek.exceptions && sweatWeek.exceptions.length > 0) {
+    sampleSchedule = allSchedules.find(s => {
+      return sweatWeek.exceptions.some(ex => s.course_name.toLowerCase().includes(ex.toLowerCase()) || ex.toLowerCase().includes(s.course_name.toLowerCase()));
+    });
+  }
+  if (!sampleSchedule) {
+    sampleSchedule = todaySchedules[0] || allSchedules[0] || {
+      course_name: 'Algoritma dan Pemrograman',
+      lecturer: 'Dosen Pembimbing, M.Kom',
+      start_time: '08:00:00',
+      end_time: '10:30:00',
+      note: 'Lab Komputer 3',
+      day_of_week: 'selasa'
+    };
+  }
+
+  // 2. Susun pesan ringkasan uji coba notifikasi
+  let testReport =
+    `🧪 *[UJI COBA & DIAGNOSTIK NOTIFIKASI BOT]*\n\n` +
+    `📍 *Konfigurasi Grup:*\n` +
+    `• Grup Saat Ini : \`${groupJid || 'Chat Pribadi'}\`\n` +
+    `• Grup Utama    : \`${targetGroupJid || 'Belum diatur (!bot setgroup)'}\`\n` +
+    `• Grup Testing  : \`${testGroupJid || 'Belum diatur (!bot settestgroup)'}\`\n\n` +
+    `⚡ *Status Mode Akademik:*\n` +
+    `• Minggu Tenang : *${sweatWeek.isActive ? 'AKTIF (' + (sweatWeek.type || 'uts').toUpperCase() + ')' : 'NONAKTIF (Normal)'}*\n`;
+
+  if (sweatWeek.isActive) {
+    const startStr = formatter.formatDateIndo(new Date(sweatWeek.startDate));
+    const endStr = formatter.formatDateIndo(new Date(sweatWeek.endDate));
+    testReport += `• Rentang       : ${startStr} s.d ${endStr}\n`;
+    testReport += `• Kuliah Masuk  : ${sweatWeek.exceptions.length > 0 ? sweatWeek.exceptions.join(', ') : 'Semua Libur'}\n`;
+    testReport += `• Kuliah Libur  : Seluruh matkul lainnya libur (reminder harian & H-3 jam dinonaktifkan)\n`;
+  }
+
+  testReport += `• Jadwal Ujian  : *${exams.length} matkul terdaftar*\n\n`;
+
+  // Simulasi 1: Pengingat Harian (Jam 00:00 WIB)
+  testReport += `━━━━━━━━━━━━━━━━━━━━━━━\n`;
+  testReport += `1️⃣ *SIMULASI PENGINGAT HARIAN (JAM 00:00 WIB)*\n`;
+  testReport += `━━━━━━━━━━━━━━━━━━━━━━━\n`;
+
+  if (sweatWeek.isActive) {
+    const activeToday = todaySchedules.filter(s => {
+      return (sweatWeek.exceptions || []).some(ex => s.course_name.toLowerCase().includes(ex.toLowerCase()) || ex.toLowerCase().includes(s.course_name.toLowerCase()));
+    });
+    if (activeToday.length > 0) {
+      const template = await messageService.getTemplate('reminder_daily') || {
+        content: '📚 *JADWAL KULIAH HARI INI ({hari})* 📚\n\nBerikut adalah jadwal perkuliahan hari ini:\n\n{daftar_jadwal}\n\nSemangat kuliahnya rekan-rekan! 🚀'
+      };
+      testReport += messageService.buildDailyScheduleMessage(template.content, activeToday, formatter.getIndonesianDayName(new Date()).toLowerCase()) + `\n\n`;
+    } else {
+      testReport += `📚 *PENGINGAT HARIAN HARI INI:*\n_Seluruh perkuliahan hari ini LIBUR karena masa Minggu Tenang ${(sweatWeek.type || 'uts').toUpperCase()}._\n_(Bot tidak mengirim pesan harian jika semua matkul libur)_\n\n`;
+    }
+  } else {
+    if (todaySchedules.length > 0) {
+      const template = await messageService.getTemplate('reminder_daily') || {
+        content: '📚 *JADWAL KULIAH HARI INI ({hari})* 📚\n\nBerikut adalah jadwal perkuliahan hari ini:\n\n{daftar_jadwal}\n\nSemangat kuliahnya rekan-rekan! 🚀'
+      };
+      testReport += messageService.buildDailyScheduleMessage(template.content, todaySchedules, formatter.getIndonesianDayName(new Date()).toLowerCase()) + `\n\n`;
+    } else {
+      testReport += `📚 *PENGINGAT HARIAN:*\n_Tidak ada jadwal perkuliahan hari ini (Libur reguler)._\n\n`;
+    }
+  }
+
+  // Simulasi 2: Pengingat H-3 Jam Sebelum Kuliah
+  testReport += `━━━━━━━━━━━━━━━━━━━━━━━\n`;
+  testReport += `2️⃣ *SIMULASI PENGINGAT H-3 JAM SEBELUM KULIAH*\n`;
+  testReport += `━━━━━━━━━━━━━━━━━━━━━━━\n`;
+
+  const template3h = await messageService.getTemplate('reminder_3_hours') || {
+    content: '━━━━━━━━━━━━━━━\n📢 *PENGINGAT KULIAH (3 JAM LAGI)*\n━━━━━━━━━━━━━━━\n📖 *{matkul}*\n🕧 Waktu: {jam} WIB\n📍 Ruang: {lokasi}\n👩‍🏫 Dosen: {dosen}\n{tugas}\n━━━━━━━━━━━━━━━\nHarap persiapkan materi dan perlengkapan kelas! 🚀'
+  };
+
+  let sim3h = messageService.buildReminderMessage(template3h.content, sampleSchedule);
+  const isSampleSweatException = sweatWeek.isActive && (sweatWeek.exceptions || []).some(ex => sampleSchedule.course_name.toLowerCase().includes(ex.toLowerCase()) || ex.toLowerCase().includes(sampleSchedule.course_name.toLowerCase()));
+  if (isSampleSweatException) {
+    sim3h = `⚠️ *[KULIAH PENGGANTI DI MINGGU TENANG]*\n\n` + sim3h;
+  }
+  testReport += sim3h + `\n\n`;
+
+  // Simulasi 3: Pengingat Ujian
+  testReport += `━━━━━━━━━━━━━━━━━━━━━━━\n`;
+  testReport += `3️⃣ *SIMULASI PENGINGAT JADWAL UJIAN*\n`;
+  testReport += `━━━━━━━━━━━━━━━━━━━━━━━\n`;
+
+  if (exams.length > 0) {
+    const exSample = exams[0];
+    const dateStr = formatter.formatDateIndo(new Date(exSample.exam_date));
+    const jam = `${formatter.formatTime(exSample.start_time)} s.d ${formatter.formatTime(exSample.end_time)}`;
+    const noteStr = exSample.notes ? `\n🎒 *Catatan/Bawaan:* ${exSample.notes}` : '';
+
+    testReport +=
+      `*A. Pengingat H-1 Malam (Jam 20:00 WIB):*\n` +
+      `📚 *PENGINGAT ${(exSample.exam_type || 'uts').toUpperCase()} BESOK*\n` +
+      `Diberitahukan bahwa besok (${dateStr}) dilaksanakan ujian:\n` +
+      `1. *${exSample.course_name}* (🕧 ${jam} WIB | 📍 *${exSample.room}*)\n` +
+      `⚠️ Wajib bawa KPU, KTM & alat tulis lengkap!\n\n` +
+      `*B. Pengingat H-3 Jam Sebelum Ujian:*\n` +
+      `📢 *PENGINGAT UJIAN ${(exSample.exam_type || 'uts').toUpperCase()} (3 JAM LAGI)*\n` +
+      `📖 Mata Kuliah : *${exSample.course_name}*\n` +
+      `🕧 Waktu       : ${jam} WIB\n` +
+      `📍 Ruangan     : *${exSample.room}*\n` +
+      `📝 Sifat Ujian : ${exSample.exam_format || 'Tatap Muka'}${noteStr}\n`;
+  } else {
+    testReport +=
+      `ℹ️ _Belum ada jadwal ujian di database._\n` +
+      `Setelah jadwal diinput via \`!bot ujian tambah\` atau web, pengingat H-1 malam (20:00 WIB) dan H-3 jam sebelum ujian akan aktif otomatis!\n`;
+  }
+
+  testReport += `\n✅ *Hasil Tes: Mesin pengingat bot berfungsi normal dan siap mengirim notifikasi otomatis sesuai jadwal!*`;
+
+  let mentions = [];
+  try {
+    if (isGroup && sock) {
+      const meta = await getCachedGroupMetadata(sock, groupJid);
+      if (meta && Array.isArray(meta.participants)) {
+        mentions = meta.participants.map(p => p.id);
+      }
+    }
+  } catch (_) {}
+
+  await reply(testReport, mentions);
+}
+
 export async function handleCommand(sock, messageInfo, isAdmin = false) {
   const { rawText, fromJid, isGroup, groupJid, senderNumber, senderJid } = messageInfo;
   const reply = async (text, mentions = []) => {
@@ -1254,7 +1452,7 @@ export async function handleCommand(sock, messageInfo, isAdmin = false) {
     const adminCommands = new Set([
       'setgroup', 'delgroup', 'unsetgroup',
       'settestgroup', 'deltestgroup', 'unsettestgroup',
-      'test'
+      'test', 'notif'
     ]);
 
     const isKasAdmin = subCmd === 'kas' && ['masuk', 'keluar', 'del', 'hapus', 'reset', 'koreksi'].includes((args[2] || '').toLowerCase());
@@ -1290,6 +1488,7 @@ export async function handleCommand(sock, messageInfo, isAdmin = false) {
 • \`!bot delgroup\` : Hapus pendaftaran Grup Kelas Utama.
 • \`!bot settestgroup\` : Daftarkan grup ini sebagai Grup Testing (uji coba fitur).
 • \`!bot deltestgroup\` : Hapus pendaftaran Grup Testing.
+• \`!bot notif tes\` : Uji coba simulasi pengingat kuliah & ujian.
 • \`!bot test start\` : Mulai sesi uji coba fitur (merekam snapshot database).
 • \`!bot test reminder\` : Kirim simulasi pengingat kuliah ke grup testing.
 • \`!bot test reset\` : Hapus seluruh data tes & kembalikan database bersih.
@@ -1342,6 +1541,7 @@ export async function handleCommand(sock, messageInfo, isAdmin = false) {
 
 *🗓️ MINGGU TENANG (SWEAT WEEK)*
 • \`!bot minggu-tenang\` : Panduan & kalender minggu tenang terdekat.
+• \`!bot minggu-tenang broadcast\` : Siarkan pengumuman Minggu Tenang ke grup kelas (Admin).
 • \`!bot minggu-tenang uts <matkul_masuk>\` : Aktifkan Minggu Tenang UTS (sisanya libur).
 • \`!bot minggu-tenang uts semua-libur\` : Liburkan seluruh perkuliahan 100%.
 • \`!bot minggu-tenang status\` : Cek rincian matkul libur vs tetap masuk.
@@ -1435,58 +1635,23 @@ export async function handleCommand(sock, messageInfo, isAdmin = false) {
             `Ketik \`!bot test reset\` kapan saja untuk menghapus semua data tes ini.`
           );
         }
-      } else if (testAction === 'reminder') {
-        const testGroupJid = await messageService.getSetting('test_group_jid');
-        const targetJid = isGroup ? groupJid : (testGroupJid || null);
-
-        if (!targetJid) {
-          await reply('❌ Grup testing belum didaftarkan. Jalankan perintah ini di dalam grup testing atau daftarkan dengan `!bot settestgroup`.');
-          return;
-        }
-
-        const todaySchedules = await jadwalService.getTodaySchedules();
-        let sampleSchedule = todaySchedules[0];
-        if (!sampleSchedule) {
-          const allSchedules = await jadwalService.getAllSchedules();
-          sampleSchedule = allSchedules[0] || {
-            course_name: 'Simulasi Algoritma & Pemrograman',
-            lecturer: 'Dosen Pembimbing, M.Kom',
-            start_time: '08:00:00',
-            end_time: '10:30:00',
-            note: 'Ruang Lab Komputer / Simulasi',
-            day_of_week: 'senin'
-          };
-        }
-
-        const template = await messageService.getTemplate('reminder_5h') || {
-          content: '⏳ [PENGINGAT KULIAH H-5 JAM]\n\n📚 Mata Kuliah: *{matkul}*\n👨‍🏫 Dosen: *{dosen}*\n⏰ Jam: *{jam}*\n📝 Ruangan / Catatan: *{note}*\n\n_Pengingat ini otomatis dari Bot Kelas._'
-        };
-
-        let mentions = [];
-        try {
-          const metadata = await getCachedGroupMetadata(sock, targetJid);
-          if (metadata && Array.isArray(metadata.participants)) {
-            mentions = metadata.participants.map(p => p.id);
-          }
-        } catch (e) {
-          // metadata error ignored
-        }
-
-        const msgContent = `🧪 *[SIMULASI UJI COBA REMINDER]*\n\n` + messageService.buildReminderMessage(template.content, sampleSchedule);
-        await sock.sendMessage(targetJid, { text: msgContent, mentions });
-
-        if (!isGroup || targetJid !== groupJid) {
-          await reply(`✅ Simulasi pengingat kuliah berhasil dikirim ke grup testing (\`${targetJid}\`).`);
-        }
+      } else if (['reminder', 'notif', 'tes', 'test'].includes(testAction)) {
+        await runNotificationTest(sock, messageInfo, reply);
       } else {
         await reply(
           'ℹ️ *MENU PERINTAH PENGUJIAN (TEST SUITE):*\n\n' +
+          '• `!bot notif tes` : Uji coba & simulasi seluruh format pengingat bot (harian, H-3 jam & ujian).\n' +
           '• `!bot test start` : Memulai sesi uji coba (merekam snapshot database).\n' +
           '• `!bot test status` : Cek jumlah data tes yang dibuat selama sesi.\n' +
           '• `!bot test reminder` : Kirim simulasi pengingat jadwal kuliah ke grup testing.\n' +
           '• `!bot test reset` : Hapus seluruh data tes & pulihkan database bersih!'
         );
       }
+      break;
+    }
+
+    case 'notif': {
+      await runNotificationTest(sock, messageInfo, reply);
       break;
     }
 

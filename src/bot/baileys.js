@@ -155,10 +155,10 @@ export function acquireBotLock() {
       if (existingPid && existingPid !== process.pid) {
         try {
           process.kill(existingPid, 0);
-          console.warn(`[WA] ⚠️ Sesi bot Baileys sudah aktif di proses PID: ${existingPid}. Mencegah socket ganda.`);
-          botState.status = 'disconnected';
-          botState.lastError = `Bot sedang aktif di proses PID: ${existingPid}. Matikan proses lama terlebih dahulu agar tidak saling kick/logout.`;
-          return false;
+          console.warn(`[WA] ⚠️ Menghentikan proses worker lama PID: ${existingPid} untuk regenerasi sesi bersih.`);
+          try {
+            process.kill(existingPid, 'SIGKILL');
+          } catch (_) {}
         } catch (_) {
           // Process lama sudah mati, boleh ambil alih lock
         }
@@ -339,8 +339,20 @@ export async function initBaileys() {
             }
           }
 
-          // Hanya proses pesan yang diawali '!bot' atau '!tampil'
-          if (!trimmed.startsWith('!bot') && !trimmed.startsWith('!tampil')) {
+          // Cek jika perintah diawali '!bor' (toleransi typo)
+          if (trimmed.startsWith('!bor')) {
+            // Lanjutkan proses sebagai perintah bot
+          } else if (!trimmed.startsWith('!bot') && !trimmed.startsWith('!tampil')) {
+            // Deteksi jika user mengetik perintah valid tetapi lupa menyertakan awalan '!bot'
+            const knownMatch = trimmed.match(/^!(kas|jadwal|kuliah|tugas|ujian|minggu-tenang|minggutenang|sweat-week|sweatweek|spin|acak|notif|test)\b/i);
+            if (knownMatch) {
+              const properCmd = `!bot ${rawText.trim().slice(1)}`;
+              try {
+                await sock.sendMessage(fromJid, {
+                  text: `💡 *Perintah Membutuhkan Awalan !bot*\n\nGunakan kata \`!bot\` di depan perintah, contoh:\n👉 \`${properCmd}\``
+                }, { quoted: msg });
+              } catch (_) {}
+            }
             continue;
           }
 
